@@ -1,0 +1,18 @@
+# Secrets
+backend/.env
+*.service-account.json
+secrets/
+
+# Python
+backend/.venv/
+backend/data/
+__pycache__/
+.pytest_cache/
+
+# Flutter
+app/.dart_tool/
+app/build/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/android/key.properties
+app/android/app/upload-keystore.jks
