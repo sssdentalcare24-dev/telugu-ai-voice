@@ -243,6 +243,8 @@ void main() {
     await tester.tap(find.text('◌ా')); // ◌ా
     await tester.pump();
     expect(controller.text, 'కా');
+    await tester.ensureVisible(find.byTooltip('Backspace'));
+    await tester.pump();
     await tester.tap(find.byTooltip('Backspace'));
     expect(controller.text, 'క');
   });
