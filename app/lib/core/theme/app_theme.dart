@@ -91,10 +91,7 @@ abstract final class AppTheme {
       ),
       snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
       pageTransitionsTheme: const PageTransitionsTheme(
-        builders: {
-          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
-          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-        },
+        builders: {TargetPlatform.android: FadeForwardsPageTransitionsBuilder()},
       ),
     );
   }
