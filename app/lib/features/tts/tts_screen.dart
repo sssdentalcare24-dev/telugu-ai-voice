@@ -3,15 +3,23 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_models.dart';
 import '../../core/config/app_config.dart';
 import '../../core/feature_status.dart';
+import '../../core/free/free_voice_engine.dart';
+import '../../core/free/gradio_space.dart';
+import '../../core/free/local_audio_store.dart';
+import '../../core/state/app_controller.dart';
 import '../../core/state/app_scope.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/tts/device_tts.dart';
 import '../../widgets/audio_tile.dart';
 import '../../widgets/common.dart';
+import '../../widgets/local_audio_tile.dart';
 import '../../widgets/telugu_keyboard.dart';
 
 /// Where the speech comes from.
-enum VoiceSource { server, phone }
+///  * free   – natural AI voice from the free AI4Bharat IndicF5 server (online)
+///  * phone  – the phone's own Telugu text-to-speech (offline, play only)
+///  * server – the app's own backend (Google / Azure), when one is connected
+enum VoiceSource { free, phone, server }
 
 class TtsScreen extends StatefulWidget {
   const TtsScreen({super.key, this.phoneVoice});
@@ -34,7 +42,10 @@ class _TtsScreenState extends State<TtsScreen> {
   double _pitch = 0.0;
   bool _showKeyboard = false;
   bool _busy = false;
+  String? _progress;
   AudioItem? _result;
+  FreeVoice _freeVoice = FreeVoice.female1;
+  LocalAudio? _freeResult;
 
   @override
   void initState() {
@@ -91,6 +102,46 @@ class _TtsScreenState extends State<TtsScreen> {
     }
   }
 
+  Future<void> _generateFree(FreeVoice voice) async {
+    FocusScope.of(context).unfocus();
+    final app = AppScope.read(context);
+    final text = _text.text.trim();
+    setState(() {
+      _busy = true;
+      _progress = 'Connecting to the free voice server…';
+    });
+    try {
+      final wav = await app.freeEngine.synthesize(
+        text,
+        voice,
+        onProgress: (step, total, message) {
+          if (mounted) setState(() => _progress = message);
+        },
+      );
+      final short = text.characters.length > 48 ? '${text.characters.take(48)}…' : text;
+      final item = await app.localAudio.add(wav, title: short, kind: 'tts', detail: voice.label);
+      if (!mounted) return;
+      setState(() => _freeResult = item);
+      showMessage(context, 'Voice ready · వాయిస్ సిద్ధం');
+      try {
+        await app.playback.toggle(item, () => app.localAudio.bytesOf(item));
+      } catch (_) {
+        // The Play button on the result still works; autoplay is a convenience.
+      }
+    } on FreeEngineException catch (e) {
+      if (mounted) showMessage(context, e.message, error: true);
+    } catch (_) {
+      if (mounted) showMessage(context, 'Something went wrong while making the voice. Please try again.', error: true);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _progress = null;
+        });
+      }
+    }
+  }
+
   Future<void> _playPhone() async {
     FocusScope.of(context).unfocus();
     if (_phone.speaking) {
@@ -108,8 +159,15 @@ class _TtsScreenState extends State<TtsScreen> {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
     final serverStatus = FeatureStatus.serverOf(app, Feature.tts);
-    final source = _source ?? (serverStatus.ready ? VoiceSource.server : VoiceSource.phone);
-    final maxChars = app.health?.limits.maxTtsChars ?? 5000;
+    final showServer = app.connection == ServerConnection.online;
+    var source = _source ?? (serverStatus.ready ? VoiceSource.server : VoiceSource.free);
+    if (source == VoiceSource.server && !showServer) source = VoiceSource.free;
+    final maxChars = switch (source) {
+      VoiceSource.free => FreeVoiceEngine.maxChars,
+      _ => app.health?.limits.maxTtsChars ?? 5000,
+    };
+    final freeOptions = FreeVoice.forGender(_gender);
+    final freeVoice = freeOptions.contains(_freeVoice) ? _freeVoice : freeOptions.first;
     final options = _voicesFor(app.voices);
     final voice = _selectedVoice(options);
     final length = _text.text.trim().characters.length;
@@ -125,7 +183,7 @@ class _TtsScreenState extends State<TtsScreen> {
       } else if (!voice.available) {
         blockedReason = 'The ${voice.provider} provider for this voice is not configured. Pick another voice.';
       }
-    } else {
+    } else if (source == VoiceSource.phone) {
       blockedReason = switch (_phone.state) {
         PhoneVoiceState.checking => 'Checking the phone voice…',
         PhoneVoiceState.missing => 'No Telugu voice is installed on this phone. See the steps above.',
@@ -215,17 +273,23 @@ class _TtsScreenState extends State<TtsScreen> {
                     SegmentedButton<VoiceSource>(
                       key: const Key('voice-source'),
                       showSelectedIcon: false,
-                      segments: const [
-                        ButtonSegment(
+                      segments: [
+                        const ButtonSegment(
+                          value: VoiceSource.free,
+                          icon: Icon(Icons.auto_awesome_rounded),
+                          label: Text('Natural'),
+                        ),
+                        const ButtonSegment(
                           value: VoiceSource.phone,
                           icon: Icon(Icons.phone_android_rounded),
-                          label: Text('Phone voice'),
+                          label: Text('Phone'),
                         ),
-                        ButtonSegment(
-                          value: VoiceSource.server,
-                          icon: Icon(Icons.dns_rounded),
-                          label: Text('Natural (server)'),
-                        ),
+                        if (showServer)
+                          const ButtonSegment(
+                            value: VoiceSource.server,
+                            icon: Icon(Icons.dns_rounded),
+                            label: Text('Server'),
+                          ),
                       ],
                       selected: {source},
                       onSelectionChanged: (s) => setState(() => _source = s.first),
@@ -233,19 +297,54 @@ class _TtsScreenState extends State<TtsScreen> {
                     const SizedBox(height: 14),
                     if (source == VoiceSource.phone)
                       _PhoneVoicePanel(phone: _phone)
-                    else ...[
+                    else if (source == VoiceSource.free) ...[
+                      const _InfoBox(
+                        icon: Icons.auto_awesome_rounded,
+                        text: 'Natural AI Telugu voice (AI4Bharat IndicF5) – free. It runs on a public Hugging Face '
+                            'server: needs internet, your text is sent there, and each voice takes about 10–40 seconds. '
+                            'The free server allows only a few voices per day for each internet connection.',
+                      ),
+                      const SizedBox(height: 12),
+                      _GenderPicker(
+                        gender: _gender,
+                        onChanged: (g) => setState(() {
+                          _gender = g;
+                          _freeVoice = FreeVoice.forGender(g).first;
+                        }),
+                      ),
+                      if (freeOptions.length > 1) ...[
+                        const SizedBox(height: 12),
+                        InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Voice',
+                            contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<FreeVoice>(
+                              key: const Key('free-voice-dropdown'),
+                              isExpanded: true,
+                              value: freeVoice,
+                              items: [
+                                for (final v in freeOptions)
+                                  DropdownMenuItem(
+                                    value: v,
+                                    child: Text('${v.label} – ${v.character}', overflow: TextOverflow.ellipsis),
+                                  ),
+                              ],
+                              onChanged: (v) => setState(() => _freeVoice = v ?? freeVoice),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ] else ...[
                       if (!serverStatus.ready) ...[
                         _InfoBox(icon: serverStatus.icon, text: serverStatus.message),
                         const SizedBox(height: 12),
                       ],
-                      SegmentedButton<String>(
-                        segments: const [
-                          ButtonSegment(value: 'female', icon: Icon(Icons.woman_rounded), label: Text('స్త్రీ · Female')),
-                          ButtonSegment(value: 'male', icon: Icon(Icons.man_rounded), label: Text('పురుష · Male')),
-                        ],
-                        selected: {_gender},
-                        onSelectionChanged: (s) => setState(() {
-                          _gender = s.first;
+                      _GenderPicker(
+                        gender: _gender,
+                        onChanged: (g) => setState(() {
+                          _gender = g;
                           _voiceId = null;
                           _style = null;
                           _pitch = 0;
@@ -321,8 +420,8 @@ class _TtsScreenState extends State<TtsScreen> {
               ),
               const SizedBox(height: 14),
 
-              // ---- Speed & pitch ---------------------------------------------------
-              SectionCard(
+              // ---- Speed & pitch (phone and server voices) ----------------------------
+              if (source != VoiceSource.free) SectionCard(
                 title: 'వేగం & పిచ్ · Speed & pitch',
                 icon: Icons.tune_rounded,
                 trailing: TextButton(
@@ -361,10 +460,19 @@ class _TtsScreenState extends State<TtsScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: source == VoiceSource.free ? 6 : 20),
 
               // ---- Action -----------------------------------------------------------
-              if (source == VoiceSource.phone)
+              if (source == VoiceSource.free)
+                FilledButton.icon(
+                  key: const Key('free-generate-button'),
+                  onPressed: (blockedReason == null && !_busy) ? () => _generateFree(freeVoice) : null,
+                  icon: _busy
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5))
+                      : const Icon(Icons.auto_awesome_rounded),
+                  label: Text(_busy ? (_progress ?? 'Making the voice…') : 'సహజ స్వరం తయారు చేయండి · Make natural voice'),
+                )
+              else if (source == VoiceSource.phone)
                 FilledButton.icon(
                   key: const Key('phone-play-button'),
                   onPressed: (blockedReason == null || _phone.speaking) ? _playPhone : null,
@@ -392,14 +500,33 @@ class _TtsScreenState extends State<TtsScreen> {
               if (source == VoiceSource.phone) ...[
                 const SizedBox(height: 8),
                 Text(
-                  "The phone voice plays aloud only; it can't be saved or downloaded. "
-                  'Natural voices you can save arrive with the server (Stage 3).',
+                  "The phone voice plays aloud only; it can't be saved. "
+                  'Choose "Natural" for a voice you can save and share.',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
                 ),
               ],
 
-              if (_result != null) ...[
+              if (source == VoiceSource.free && _freeResult != null) ...[
+                const SizedBox(height: 20),
+                SectionCard(
+                  title: 'ఫలితం · Result',
+                  icon: Icons.check_circle_rounded,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      LocalAudioTile(key: const Key('free-result'), item: _freeResult!),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Saved on this phone (see History). Tap Share to send it on WhatsApp or save it to Files.',
+                        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              if (source == VoiceSource.server && _result != null) ...[
                 const SizedBox(height: 20),
                 SectionCard(
                   title: 'ఫలితం · Result',
@@ -436,6 +563,26 @@ class _TtsScreenState extends State<TtsScreen> {
   }
 }
 
+class _GenderPicker extends StatelessWidget {
+  const _GenderPicker({required this.gender, required this.onChanged});
+
+  final String gender;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<String>(
+      key: const Key('gender-picker'),
+      segments: const [
+        ButtonSegment(value: 'female', icon: Icon(Icons.woman_rounded), label: Text('స్త్రీ · Female')),
+        ButtonSegment(value: 'male', icon: Icon(Icons.man_rounded), label: Text('పురుష · Male')),
+      ],
+      selected: {gender},
+      onSelectionChanged: (s) => onChanged(s.first),
+    );
+  }
+}
+
 class _PhoneVoicePanel extends StatelessWidget {
   const _PhoneVoicePanel({required this.phone});
 
@@ -450,7 +597,7 @@ class _PhoneVoicePanel extends StatelessWidget {
       case PhoneVoiceState.unsupported:
         return const _InfoBox(
           icon: Icons.block_rounded,
-          text: 'This device has no text-to-speech engine the app can use. Choose the server voice instead.',
+          text: 'This device has no text-to-speech engine the app can use. Choose "Natural" instead.',
         );
       case PhoneVoiceState.missing:
         return const _InfoBox(
@@ -466,8 +613,8 @@ class _PhoneVoicePanel extends StatelessWidget {
       children: [
         const _InfoBox(
           icon: Icons.phone_android_rounded,
-          text: "Uses this phone's built-in Telugu voice. Free and works offline. "
-              'It sounds less natural than the server voices.',
+          text: "Uses this phone's built-in Telugu voice. Free and works offline, "
+              'but it sounds more robotic than "Natural".',
         ),
         if (phone.voices.length > 1) ...[
           const SizedBox(height: 12),

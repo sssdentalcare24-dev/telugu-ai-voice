@@ -5,14 +5,26 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/api_client.dart';
 import '../api/api_models.dart';
 import '../config/app_config.dart';
+import '../free/audio_playback.dart';
+import '../free/free_voice_engine.dart';
+import '../free/local_audio_store.dart';
 
 enum ServerConnection { checking, online, offline }
 
-/// App-wide state: theme, server address, and what the server can do right now.
+/// App-wide state: theme, server address, what the server can do right now,
+/// plus the free online engines and the audio kept on this phone.
 class AppController extends ChangeNotifier {
-  AppController({required SharedPreferences prefs, http.Client? httpClient})
-      : _prefs = prefs,
-        _httpClient = httpClient {
+  AppController({
+    required SharedPreferences prefs,
+    http.Client? httpClient,
+    LocalAudioStore? localAudio,
+    FreeVoiceEngine? freeEngine,
+    AudioPlayback? playback,
+  })  : _prefs = prefs,
+        _httpClient = httpClient,
+        localAudio = localAudio ?? LocalAudioStore(prefs: prefs),
+        freeEngine = freeEngine ?? FreeVoiceEngine(),
+        playback = playback ?? AudioPlayback() {
     final mode = prefs.getString(_kTheme);
     _themeMode = ThemeMode.values.firstWhere((m) => m.name == mode, orElse: () => ThemeMode.system);
     _apiBaseUrl = prefs.getString(_kApiBase) ?? AppConfig.defaultApiBaseUrl;
@@ -26,6 +38,15 @@ class AppController extends ChangeNotifier {
 
   final SharedPreferences _prefs;
   final http.Client? _httpClient;
+
+  /// Audio made with the free engines, kept on this phone.
+  final LocalAudioStore localAudio;
+
+  /// Free natural Telugu voice + voice conversion (public Hugging Face Spaces).
+  final FreeVoiceEngine freeEngine;
+
+  /// In-app player for [localAudio] clips.
+  final AudioPlayback playback;
 
   late ThemeMode _themeMode;
   late String _apiBaseUrl;

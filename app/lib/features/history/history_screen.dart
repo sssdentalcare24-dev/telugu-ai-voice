@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_models.dart';
+import '../../core/free/local_audio_store.dart';
 import '../../core/state/app_controller.dart';
 import '../../core/state/app_scope.dart';
 import '../../widgets/audio_tile.dart';
 import '../../widgets/common.dart';
+import '../../widgets/local_audio_tile.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -29,6 +31,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   Future<void> _load({bool reset = false}) async {
     if (_loading && !reset) return;
+    if (AppScope.read(context).connection != ServerConnection.online) return;
     final id = ++_requestId; // newer requests (e.g. a filter change) win
     final app = AppScope.read(context);
     setState(() {
@@ -82,6 +85,25 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
+  Future<void> _deleteLocal(LocalAudio item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete audio? · తొలగించాలా?'),
+        content: Text('"${item.title}" will be deleted from this phone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final app = AppScope.read(context);
+    if (app.playback.isPlaying(item.id)) await app.playback.stop();
+    await app.localAudio.delete(item);
+    if (mounted) showMessage(context, 'Deleted · తొలగించబడింది');
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
@@ -102,9 +124,52 @@ class _HistoryScreenState extends State<HistoryScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                ScreenHeading(
+                const ScreenHeading(
                   telugu: 'ఆడియో చరిత్ర',
-                  english: 'Generated, uploaded and converted audio',
+                  english: 'Voices and conversions you made',
+                ),
+
+                // ---- Saved on this phone (free engines) ---------------------------------
+                const _SectionLabel(icon: Icons.phone_android_rounded, text: 'ఈ ఫోన్‌లో · On this phone'),
+                ListenableBuilder(
+                  listenable: app.localAudio,
+                  builder: (context, _) {
+                    final items = app.localAudio.items;
+                    if (items.isEmpty) {
+                      return const _Notice(
+                        icon: Icons.library_music_outlined,
+                        text: 'Nothing saved yet. Natural voices and conversions you make will appear here.',
+                      );
+                    }
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (final item in items) ...[
+                          LocalAudioTile(item: item, showDate: true, onDelete: () => _deleteLocal(item)),
+                          const SizedBox(height: 10),
+                        ],
+                        if (!app.localAudio.persistent)
+                          Text(
+                            'In the browser, audio is kept only until you close the page. Use Share to keep a copy.',
+                            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 18),
+
+                // ---- Stored on the app server (when one is connected) -----------------
+                if (app.connection != ServerConnection.online)
+                  Text(
+                    'Audio stored on an app server appears here when one is connected (Settings).',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+                  )
+                else ...[
+                _SectionLabel(
+                  icon: Icons.dns_rounded,
+                  text: 'సర్వర్ · On the server',
                   trailing: IconButton(
                     tooltip: 'Refresh',
                     onPressed: _loading ? null : () => _load(reset: true),
@@ -131,14 +196,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   ),
                 ),
                 const SizedBox(height: 14),
-                if (app.connection == ServerConnection.offline)
-                  _Notice(icon: Icons.cloud_off_rounded, text: 'Server offline. ${app.lastError ?? ''}')
-                else if (_error != null)
+                if (_error != null)
                   _Notice(icon: Icons.error_outline_rounded, text: _error!)
                 else if (_items.isEmpty && !_loading)
                   const _Notice(
                     icon: Icons.library_music_outlined,
-                    text: 'No audio yet. Generated speech, uploads and conversions will appear here.',
+                    text: 'No audio on the server yet.',
                   ),
                 for (final item in _items) ...[
                   _HistoryCard(item: item, onDelete: () => _delete(item)),
@@ -157,6 +220,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
                 ),
+                ],
               ],
             ),
           ),
@@ -230,6 +294,30 @@ class _HistoryCard extends StatelessWidget {
   }
 }
 
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel({required this.icon, required this.text, this.trailing});
+
+  final IconData icon;
+  final String text;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: theme.colorScheme.primary),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700))),
+          if (trailing != null) trailing!,
+        ],
+      ),
+    );
+  }
+}
+
 class _Notice extends StatelessWidget {
   const _Notice({required this.icon, required this.text});
 
@@ -240,7 +328,7 @@ class _Notice extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 28),
+      padding: const EdgeInsets.symmetric(vertical: 20),
       child: Column(
         children: [
           Icon(icon, size: 48, color: scheme.outline),

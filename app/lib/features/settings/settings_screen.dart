@@ -180,11 +180,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ])
                       _FeatureRow(name: name, status: FeatureStatus.of(app, feature)),
                     const Divider(height: 24),
-                    const _StaticRow(name: 'Upload & audio history', detail: 'Works with the local server now'),
-                    const _StaticRow(name: 'Recording from microphone', detail: 'Stage 4'),
-                    const _StaticRow(name: 'In-app player, share sheet', detail: 'Stages 3 and 7'),
+                    const _StaticRow(name: 'Recording from microphone', detail: 'Ready'),
+                    const _StaticRow(name: 'In-app player, share, history on phone', detail: 'Ready'),
+                    const _StaticRow(name: 'Upload & server history', detail: 'With an app server'),
                     const _StaticRow(name: 'Firebase sign-in', detail: 'Stage 3 (needs your Firebase project)'),
                   ],
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              SectionCard(
+                title: 'Free AI engines · ఉచిత AI',
+                icon: Icons.auto_awesome_outlined,
+                child: Text(
+                  'Used when no app server is connected. Both are free public demo servers on Hugging Face – '
+                  'no account or API key needed, but they need internet, can be slow or busy, and share a small '
+                  'free daily GPU allowance per internet connection (a few voices or conversions a day; it refills '
+                  'over time).\n\n'
+                  '• Natural Telugu voice: AI4Bharat IndicF5 (IIT Madras). Your text is sent to it.\n'
+                  '• Voice conversion: Seed-VC. Your recording is uploaded to it.\n'
+                  '• Results are saved only on this phone. Use Share to keep a copy elsewhere.\n'
+                  '• Live (real-time) conversion has no free streaming engine, so it stays off.',
+                  style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),
                 ),
               ),
               const SizedBox(height: 14),
@@ -194,7 +211,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.privacy_tip_outlined,
                 child: Text(
                   '• API keys stay on the server; the app never contains them.\n'
-                  '• Your audio is private to your account and opened through links that expire in minutes.\n'
+                  '• Server audio is private to your account and opened through links that expire in minutes.\n'
+                  '• Free-engine audio is sent to Hugging Face only when you press Make / Convert.\n'
                   '• Voice conversion requires your consent each time, and must not be used to impersonate real people.\n'
                   '• The microphone is only used after you allow it, and only while recording.',
                   style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),

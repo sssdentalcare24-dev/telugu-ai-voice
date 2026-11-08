@@ -25,7 +25,7 @@ class HomeScreen extends StatelessWidget {
         icon: Icons.text_fields_rounded,
         titleTe: 'తెలుగు టెక్స్ట్ → వాయిస్',
         titleEn: 'Telugu Text to Voice',
-        description: 'Type Telugu and hear it in a natural female or male voice.',
+        description: 'Type Telugu and hear it in a natural female or male voice. Save and share it.',
         status: FeatureStatus.of(app, Feature.tts),
         onTap: () => Navigator.pushNamed(context, AppRoutes.tts),
       ),
@@ -117,7 +117,7 @@ class _Hero extends StatelessWidget {
     final (IconData icon, String label, Color color) = switch (connection) {
       ServerConnection.checking => (Icons.sync_rounded, 'Connecting…', Colors.white70),
       ServerConnection.online => (Icons.cloud_done_rounded, 'Server online', const Color(0xFF7BE0AE)),
-      ServerConnection.offline => (Icons.cloud_off_rounded, 'Server offline', const Color(0xFFFFB4A8)),
+      ServerConnection.offline => (Icons.auto_awesome_rounded, 'Free online AI voices', const Color(0xFF7BE0AE)),
     };
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
@@ -202,7 +202,7 @@ class _HistoryShortcut extends StatelessWidget {
           child: Icon(Icons.library_music_rounded, color: scheme.primary),
         ),
         title: const Text('ఆడియో చరిత్ర · Audio history', style: TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: const Text('Your generated, uploaded and converted audio'),
+        subtitle: const Text('Voices and conversions saved on this phone'),
         trailing: const Icon(Icons.chevron_right_rounded),
       ),
     );

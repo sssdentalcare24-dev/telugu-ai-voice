@@ -5,10 +5,12 @@ import 'theme/app_colors.dart';
 
 enum Feature { tts, maleToFemale, femaleToMale, live }
 
-enum Availability { checking, offline, ready, needsSetup, unavailable, phoneVoice }
+enum Availability { checking, offline, ready, needsSetup, unavailable, freeOnline }
 
-/// Honest, server-driven availability for each feature. Buttons are enabled
-/// only when the backend reports a working provider.
+/// Honest availability for each feature. Server features are enabled only when
+/// the backend reports a working provider; otherwise text-to-speech and the
+/// recorded conversions fall back to the free online engines (Hugging Face).
+/// Live conversion has no free streaming engine, so it stays unavailable.
 class FeatureStatus {
   const FeatureStatus(this.availability, this.message);
 
@@ -19,18 +21,18 @@ class FeatureStatus {
 
   static FeatureStatus of(AppController app, Feature feature) {
     final server = serverOf(app, feature);
-    // Text-to-speech still works offline with the phone's built-in Telugu voice.
-    if (feature == Feature.tts && !server.ready && server.availability != Availability.checking) {
-      return FeatureStatus(
-        Availability.phoneVoice,
-        'Server voices are not available yet (${server.message}). '
-        "The phone's own Telugu voice works offline.",
-      );
-    }
-    return server;
+    if (feature == Feature.live || server.ready || server.availability == Availability.checking) return server;
+    return FeatureStatus(
+      Availability.freeOnline,
+      feature == Feature.tts
+          ? 'Uses the free natural Telugu voice (AI4Bharat IndicF5 on Hugging Face). Needs internet; '
+              "your text is sent there. The phone's own Telugu voice also works offline."
+          : 'Uses the free Seed-VC engine on Hugging Face. Needs internet; your recording is uploaded there '
+              'to be converted. The free server allows only a few conversions per day for each internet connection.',
+    );
   }
 
-  /// Availability of the server-side feature only (ignores the phone voice).
+  /// Availability of the server-side feature only (ignores the free engines).
   static FeatureStatus serverOf(AppController app, Feature feature) {
     switch (app.connection) {
       case ServerConnection.checking:
@@ -60,7 +62,7 @@ class FeatureStatus {
         Availability.ready => 'Ready',
         Availability.needsSetup => 'Needs API setup',
         Availability.unavailable => 'Unavailable',
-        Availability.phoneVoice => 'Phone voice',
+        Availability.freeOnline => 'Free online',
       };
 
   IconData get icon => switch (availability) {
@@ -69,7 +71,7 @@ class FeatureStatus {
         Availability.ready => Icons.check_circle_rounded,
         Availability.needsSetup => Icons.key_rounded,
         Availability.unavailable => Icons.block_rounded,
-        Availability.phoneVoice => Icons.phone_android_rounded,
+        Availability.freeOnline => Icons.cloud_done_rounded,
       };
 
   Color color(ColorScheme scheme) => switch (availability) {
@@ -78,6 +80,6 @@ class FeatureStatus {
         Availability.ready => AppColors.success,
         Availability.needsSetup => AppColors.warning,
         Availability.unavailable => scheme.outline,
-        Availability.phoneVoice => scheme.primary,
+        Availability.freeOnline => AppColors.success,
       };
 }

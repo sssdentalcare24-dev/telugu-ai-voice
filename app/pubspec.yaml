@@ -1,7 +1,7 @@
 name: telugu_ai_voice
 description: "తెలుగు AI Voice – Telugu Voice Studio"
 publish_to: 'none'
-version: 0.3.0+3
+version: 0.4.0+4
 
 environment:
   sdk: ^3.8.0
@@ -14,6 +14,10 @@ dependencies:
   file_selector: ^1.0.3      # pick audio files (Android + web), first-party
   url_launcher: ^6.3.0       # open / download signed audio links
   flutter_tts: ^4.2.0        # offline 'Phone voice' using the phone's own Telugu TTS
+  audioplayers: ^6.1.0       # in-app player for saved voices
+  path_provider: ^2.1.4      # where saved voices and recordings live on the phone
+  record: ^6.0.0             # microphone recording (WAV) for voice conversion
+  share_plus: ^10.1.4        # Android share sheet: WhatsApp, Drive, Files…
 
 dev_dependencies:
   flutter_test:

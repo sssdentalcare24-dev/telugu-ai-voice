@@ -8,10 +8,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:telugu_ai_voice/app.dart';
 import 'package:telugu_ai_voice/core/api/api_client.dart';
 import 'package:telugu_ai_voice/core/api/api_models.dart';
+import 'package:telugu_ai_voice/core/free/audio_playback.dart';
+import 'package:telugu_ai_voice/core/free/free_voice_engine.dart';
+import 'package:telugu_ai_voice/core/free/local_audio_store.dart';
+import 'package:telugu_ai_voice/core/free/mic_recorder.dart';
+import 'package:telugu_ai_voice/core/free/wav.dart';
 import 'package:telugu_ai_voice/core/state/app_controller.dart';
 import 'package:telugu_ai_voice/core/state/app_scope.dart';
 import 'package:telugu_ai_voice/core/theme/app_theme.dart';
 import 'package:telugu_ai_voice/core/tts/device_tts.dart';
+import 'package:telugu_ai_voice/features/convert/convert_screen.dart';
 import 'package:telugu_ai_voice/features/tts/tts_screen.dart';
 import 'package:telugu_ai_voice/widgets/telugu_keyboard.dart';
 
@@ -42,6 +48,113 @@ class FakePhoneVoice extends PhoneVoice {
     speaking = false;
     notifyListeners();
   }
+}
+
+/// Records what would have played, without the audio plugin.
+class FakePlayback extends AudioPlayback {
+  final List<String> played = [];
+  String? _current;
+
+  @override
+  bool isPlaying(String id) => _current == id;
+
+  @override
+  Future<void> toggle(LocalAudio item, Future<Uint8List> Function() loadBytes) async {
+    await loadBytes();
+    played.add(item.id);
+    _current = _current == item.id ? null : item.id;
+    notifyListeners();
+  }
+
+  @override
+  Future<void> stop() async {
+    _current = null;
+    notifyListeners();
+  }
+}
+
+/// Stands in for the microphone.
+class FakeRecorder extends MicRecorder {
+  bool _on = false;
+  int starts = 0;
+
+  @override
+  bool get recording => _on;
+
+  @override
+  Future<bool> start() async {
+    starts++;
+    _on = true;
+    return true;
+  }
+
+  @override
+  Future<Uint8List?> stop() async {
+    _on = false;
+    return makeWav(2, sampleRate: 16000);
+  }
+
+  @override
+  Future<void> dispose() async {}
+}
+
+/// Silent mono 16-bit WAV of [seconds].
+Uint8List makeWav(double seconds, {int sampleRate = 24000}) {
+  final format = WavInfo(
+    audioFormat: 1,
+    channels: 1,
+    sampleRate: sampleRate,
+    bitsPerSample: 16,
+    dataOffset: 44,
+    dataLength: 0,
+  );
+  return buildWav(format, Uint8List((sampleRate * seconds).round() * 2));
+}
+
+/// A pretend pair of Hugging Face Spaces (IndicF5 + Seed-VC).
+class FakeSpaces {
+  final List<String> calls = [];
+  final List<Object?> lastData = [];
+
+  late final MockClient client = MockClient((req) async {
+    final path = req.url.path;
+    final call = RegExp(r'^/gradio_api/call/([a-z_0-9]+)(/(.+))?$').firstMatch(path);
+    if (req.method == 'POST' && call != null && call.group(3) == null) {
+      calls.add(call.group(1)!);
+      lastData
+        ..clear()
+        ..addAll((jsonDecode(req.body) as Map)['data'] as List);
+      return _json({'event_id': 'ev-${call.group(1)}'});
+    }
+    if (req.method == 'GET' && call != null) {
+      final out = switch (call.group(1)) {
+        'load_example' => [
+            {'__type__': 'update', 'value': 'text'},
+            {
+              '__type__': 'update',
+              'value': {'path': '/tmp/gradio/ref/audio.wav', 'meta': {'_type': 'gradio.FileData'}},
+            },
+            {'__type__': 'update', 'value': 'ಉಲ್ಲೇಖ ಪಠ್ಯ'},
+          ],
+        'synthesize_speech' => [
+            {'path': '/tmp/gradio/tts/audio.wav', 'meta': {'_type': 'gradio.FileData'}},
+          ],
+        'predict_1' => [
+            {'path': '/tmp/gradio/vc/playlist.m3u8'},
+            {'path': '/tmp/gradio/vc/audio.wav'},
+          ],
+        _ => null,
+      };
+      if (out == null) return http.Response('event: error\ndata: null\n\n', 200);
+      return http.Response.bytes(utf8.encode('event: complete\ndata: ${jsonEncode(out)}\n\n'), 200);
+    }
+    if (path == '/gradio_api/upload') {
+      calls.add('upload');
+      return _json(['/tmp/gradio/up/file.wav']);
+    }
+    if (path.startsWith('/gradio_api/file=')) return http.Response.bytes(makeWav(1.5), 200);
+    return http.Response('not found', 404);
+  });
 }
 
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(
@@ -128,13 +241,28 @@ MockClient _server({bool tts = false, bool offline = false}) => MockClient((req)
       }
     });
 
-Future<AppController> _startApp(WidgetTester tester, {bool tts = false, bool offline = false}) async {
+AppController _controller(SharedPreferences prefs, {bool tts = false, bool offline = false, FakeSpaces? spaces}) =>
+    AppController(
+      prefs: prefs,
+      httpClient: _server(tts: tts, offline: offline),
+      localAudio: LocalAudioStore.memory(),
+      freeEngine: FreeVoiceEngine(client: (spaces ?? FakeSpaces()).client),
+      playback: FakePlayback(),
+    );
+
+Future<void> _pumpFor(WidgetTester tester, {int times = 40}) async {
+  for (var i = 0; i < times; i++) {
+    await tester.pump(const Duration(milliseconds: 20));
+  }
+}
+
+Future<AppController> _startApp(WidgetTester tester, {bool tts = false, bool offline = false, FakeSpaces? spaces}) async {
   tester.view.physicalSize = const Size(1200, 2600);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
-  final controller = AppController(prefs: prefs, httpClient: _server(tts: tts, offline: offline));
+  final controller = _controller(prefs, tts: tts, offline: offline, spaces: spaces);
   await tester.pumpWidget(TeluguVoiceApp(controller: controller));
   controller.refreshServer();
   for (var i = 0; i < 5; i++) {
@@ -156,25 +284,25 @@ void main() {
     expect(find.text('పురుష → స్త్రీ స్వరం'), findsOneWidget);
     expect(find.text('స్త్రీ → పురుష స్వరం'), findsOneWidget);
     expect(find.text('లైవ్ వాయిస్ ఛేంజర్'), findsOneWidget);
-    expect(find.text('Phone voice'), findsOneWidget); // TTS still works on the phone
-    expect(find.text('Needs API setup'), findsNWidgets(2));
-    expect(find.text('Unavailable'), findsOneWidget);
+    // Without a server provider, voice and conversions use the free online engines.
+    expect(find.text('Free online'), findsNWidgets(3));
+    expect(find.text('Unavailable'), findsOneWidget); // no free live streaming engine
     expect(find.text('Server online'), findsOneWidget);
   });
 
   testWidgets('Offline server is reported, not hidden', (tester) async {
     final app = await _startApp(tester, offline: true);
     expect(app.connection, ServerConnection.offline);
-    expect(find.text('Server offline'), findsOneWidget);
-    expect(find.text('Offline'), findsNWidgets(3));
-    expect(find.text('Phone voice'), findsOneWidget);
+    expect(find.text('Free online AI voices'), findsOneWidget);
+    expect(find.text('Free online'), findsNWidgets(3));
+    expect(find.text('Offline'), findsOneWidget); // live conversion needs a server
   });
 
   testWidgets('Server Generate is disabled until the server has a TTS provider', (tester) async {
     await _startApp(tester);
     await tester.tap(find.text('తెలుగు టెక్స్ట్ → వాయిస్'));
     await _settleRoute(tester);
-    await tester.tap(find.text('Natural (server)'));
+    await tester.tap(find.text('Server'));
     await tester.pump();
     final button = tester.widget<FilledButton>(find.byKey(const Key('generate-button')));
     expect(button.onPressed, isNull);
@@ -198,7 +326,7 @@ void main() {
     addTearDown(tester.view.reset);
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
-    final app = AppController(prefs: prefs, httpClient: _server(offline: true));
+    final app = _controller(prefs, offline: true);
     final phone = FakePhoneVoice();
     await tester.pumpWidget(
       AppScope(
@@ -211,6 +339,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
     }
     expect(app.connection, ServerConnection.offline);
+    await tester.tap(find.text('Phone'));
+    await tester.pump();
     expect(find.byKey(const Key('phone-voice-dropdown')), findsOneWidget);
     final play = find.byKey(const Key('phone-play-button'));
     expect(tester.widget<FilledButton>(play).onPressed, isNotNull);
@@ -218,6 +348,72 @@ void main() {
     await tester.pump();
     expect(phone.spoken.single, contains('నమస్కారం'));
     expect(find.textContaining('Stop'), findsOneWidget);
+  });
+
+  testWidgets('Natural voice is made by the free engine, saved and played', (tester) async {
+    final spaces = FakeSpaces();
+    final app = await _startApp(tester, offline: true, spaces: spaces);
+    await tester.tap(find.text('తెలుగు టెక్స్ట్ → వాయిస్'));
+    await _settleRoute(tester);
+    expect(find.byKey(const Key('free-voice-dropdown')), findsOneWidget); // two female voices
+    await tester.tap(find.byKey(const Key('free-generate-button')));
+    await _pumpFor(tester);
+    expect(spaces.calls, ['load_example', 'synthesize_speech']);
+    expect(spaces.lastData.first, contains('నమస్కారం')); // the Telugu text is what gets spoken
+    expect(find.byKey(const Key('free-result')), findsOneWidget);
+    expect(app.localAudio.items.single.kind, 'tts');
+    expect((app.playback as FakePlayback).played, [app.localAudio.items.single.id]);
+    await tester.pump(const Duration(seconds: 5)); // let the snack bar go
+  });
+
+  testWidgets('Male to female: record, consent, convert with the free engine', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final spaces = FakeSpaces();
+    final app = _controller(prefs, offline: true, spaces: spaces);
+    final mic = FakeRecorder();
+    await tester.pumpWidget(
+      AppScope(
+        controller: app,
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: ConvertScreen(direction: ConversionDirection.maleToFemale, recorder: mic),
+        ),
+      ),
+    );
+    await tester.pump();
+    Finder convert() => find.byKey(const Key('convert-button'));
+    expect(tester.widget<FilledButton>(convert()).onPressed, isNull);
+
+    // Record: the app explains the microphone first, then records.
+    await tester.tap(find.byKey(const Key('record-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    expect(mic.starts, 1);
+    expect(find.textContaining('Stop ·'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('record-button')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('Ready.'), findsOneWidget);
+
+    // Consent is required before converting.
+    expect(tester.widget<FilledButton>(convert()).onPressed, isNull);
+    await tester.tap(find.byKey(const Key('consent-checkbox')));
+    await tester.pump();
+    expect(tester.widget<FilledButton>(convert()).onPressed, isNotNull);
+
+    await tester.tap(convert());
+    await _pumpFor(tester);
+    expect(spaces.calls, ['load_example', 'upload', 'upload', 'predict_1']);
+    expect(find.byKey(const Key('converted-result')), findsOneWidget);
+    final saved = app.localAudio.items.single;
+    expect(saved.kind, 'converted');
+    expect(saved.seconds, closeTo(1.5, 0.01));
+    await tester.pump(const Duration(seconds: 5));
   });
 
   testWidgets('Live screen never offers a fake start button', (tester) async {

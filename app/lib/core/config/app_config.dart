@@ -1,11 +1,12 @@
 import 'package:flutter/foundation.dart';
 
 /// Build-time and default configuration. No API keys ever live in the app:
-/// every AI call goes through the FastAPI backend, which holds the secrets.
+/// paid AI calls go through the FastAPI backend, which holds the secrets, and
+/// the free engines (public Hugging Face Spaces) need no keys at all.
 abstract final class AppConfig {
   static const String appName = 'తెలుగు AI Voice';
   static const String appSubtitle = 'Telugu Voice Studio';
-  static const String version = '0.3.0 · Stage 2 + phone voice';
+  static const String version = '0.4.0 · free natural voice + conversion';
 
   /// Set with: flutter run --dart-define=API_BASE_URL=https://api.example.com
   /// Use "/" when the web app is served from the same origin as the API.
