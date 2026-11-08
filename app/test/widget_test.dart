@@ -478,12 +478,12 @@ void main() {
     expect(profile.preview, isNotNull);
     expect(spaces.calls, ['upload', 'synthesize_speech']); // sample sent, preview spoken
     expect(spaces.lastData[2], transcript);
-    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
 
     // My Voices shows it; "Use this voice" opens Text to Speech.
     expect(key('profile-${profile.id}'), findsOneWidget);
     await tester.tap(key('use-${profile.id}'));
-    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle(); // the tab slides over in several frames
     await tester.ensureVisible(key('clone-generate'));
     await tester.tap(key('clone-generate'));
     await _pumpFor(tester);
