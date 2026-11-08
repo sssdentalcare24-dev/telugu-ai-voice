@@ -196,16 +196,14 @@ class _ModeBadge extends StatelessWidget {
 }
 
 class _Note extends StatelessWidget {
-  const _Note({required this.icon, required this.text, this.color});
+  const _Note({required this.icon, required this.text});
 
   final IconData icon;
   final String text;
-  final Color? color;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final c = color ?? scheme.primary;
+    final c = Theme.of(context).colorScheme.primary;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(color: c.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(14)),
