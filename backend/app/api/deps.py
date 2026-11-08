@@ -14,9 +14,12 @@ from ..core.config import Settings
 from ..core.errors import ApiError
 from ..core.signing import signed_path
 from ..providers.catalog import VoiceCatalog
+from ..providers.cloning import CloneRegistry
 from ..providers.registry import ProviderRegistry
 from ..schemas import AudioItemOut
 from ..services.audio import AudioInfo
+from ..services.clone_repository import SqliteCloneRepository
+from ..services.rate_limit import RateLimiter
 from ..services.repository import AudioKind, AudioRecord, AudioRepository
 from ..services.storage import AudioStorage, storage_key
 
@@ -29,6 +32,9 @@ class AppContext:
     storage: AudioStorage
     repo: AudioRepository
     authenticator: Authenticator
+    clone: CloneRegistry
+    clone_repo: SqliteCloneRepository
+    limiter: RateLimiter
 
     # -- helpers shared by routes -------------------------------------------------
     def store_audio(

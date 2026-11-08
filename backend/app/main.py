@@ -9,12 +9,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .api.deps import AppContext
-from .api.routes import audio, health, tts, voice
+from .api.routes import audio, clone, health, tts, voice
 from .core.auth import Authenticator, TokenVerifier
 from .core.config import Settings
 from .core.errors import install_error_handlers
 from .providers.catalog import load_catalog
+from .providers.cloning import CloneRegistry, build_clone_registry
 from .providers.registry import ProviderRegistry, build_registry
+from .services.clone_repository import SqliteCloneRepository
+from .services.rate_limit import RateLimiter
 from .services.repository import SqliteAudioRepository
 from .services.storage import LocalAudioStorage
 
@@ -25,6 +28,7 @@ def create_app(
     settings: Settings | None = None,
     registry: ProviderRegistry | None = None,
     token_verifier: TokenVerifier | None = None,
+    clone_registry: CloneRegistry | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -43,6 +47,9 @@ def create_app(
         storage=LocalAudioStorage(settings.local_storage_dir),
         repo=SqliteAudioRepository(settings.sqlite_path),
         authenticator=Authenticator(settings, token_verifier),
+        clone=clone_registry or build_clone_registry(settings),
+        clone_repo=SqliteCloneRepository(settings.sqlite_path),
+        limiter=RateLimiter(),
     )
 
     install_error_handlers(app)
@@ -62,7 +69,9 @@ def create_app(
 
     @app.middleware("http")
     async def guard_and_secure(request: Request, call_next):
-        if request.method == "POST" and request.url.path in UPLOAD_PATHS:
+        path = request.url.path
+        is_upload = path in UPLOAD_PATHS or (path.startswith("/api/clone/profiles/") and path.endswith("/sample"))
+        if request.method == "POST" and is_upload:
             length = request.headers.get("content-length")
             if length and length.isdigit() and int(length) > upload_limit:
                 return JSONResponse(
@@ -82,7 +91,7 @@ def create_app(
             response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response
 
-    for module in (health, tts, voice, audio):
+    for module in (health, tts, voice, audio, clone):
         app.include_router(module.router)
 
     return app

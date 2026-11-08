@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # --- General -----------------------------------------------------------
     app_name: str = "Telugu AI Voice API"
-    app_version: str = "0.2.0"
+    app_version: str = "0.3.0"
     app_env: Literal["development", "production", "test"] = "development"
 
     # Used to sign short-lived download URLs. MUST be overridden in production.
@@ -79,6 +79,24 @@ class Settings(BaseSettings):
     vc_target_female_voice_id: str | None = None
     vc_target_male_voice_id: str | None = None
 
+    # --- Personal voice cloning -------------------------------------------------
+    # Providers to enable, in the order the app lists them: indicf5,sarvam,elevenlabs
+    voice_clone_providers: str = "indicf5,sarvam,elevenlabs"
+    voice_clone_default: str = "indicf5"
+    # Free IndicF5 Space. HF_TOKEN (a free Hugging Face account token) raises the
+    # daily GPU allowance for requests made by this server.
+    indicf5_space_url: str = "https://ai4bharat-indicf5.hf.space"
+    hf_token: str | None = None
+    # Sarvam AI Instant Voice Cloning  [PAID per character]
+    sarvam_api_key: str | None = None
+    # ElevenLabs model used with cloned voices (ELEVENLABS_API_KEY above)  [PAID]
+    elevenlabs_tts_model: str = "eleven_v4"
+    max_voice_profiles: int = Field(default=20, ge=1, le=500)
+    max_clone_chars: int = Field(default=2000, ge=50, le=20_000)
+    # Rate limits per signed-in user.
+    clone_create_per_hour: int = Field(default=10, ge=1, le=1000)
+    clone_generate_per_hour: int = Field(default=60, ge=1, le=10_000)
+
     @model_validator(mode="after")
     def _guard_production(self) -> "Settings":
         if self.app_env == "production":
@@ -95,6 +113,10 @@ class Settings(BaseSettings):
     @cached_property
     def enabled_tts_providers(self) -> list[str]:
         return [p.strip().lower() for p in self.tts_providers.split(",") if p.strip()]
+
+    @cached_property
+    def enabled_clone_providers(self) -> list[str]:
+        return [p.strip().lower() for p in self.voice_clone_providers.split(",") if p.strip()]
 
     @property
     def max_upload_bytes(self) -> int:

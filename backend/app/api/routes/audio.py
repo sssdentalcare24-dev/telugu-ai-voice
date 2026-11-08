@@ -5,6 +5,7 @@ import unicodedata
 from datetime import datetime, timezone
 from pathlib import PurePath
 from typing import Annotated, Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, Query, Response, UploadFile
 from fastapi.responses import FileResponse
@@ -13,6 +14,7 @@ from ...core.errors import ApiError
 from ...core.signing import verify
 from ...schemas import AudioItemOut, HistoryOut
 from ...services.audio import validate_audio
+from ...services.mp3 import wav_to_mp3
 from ..deps import Ctx, CurrentUser
 
 router = APIRouter(prefix="/api/audio", tags=["audio"])
@@ -81,7 +83,8 @@ def get_audio_file(
     exp: Annotated[int, Query()],
     sig: Annotated[str, Query(min_length=64, max_length=64)],
     download: Annotated[bool, Query()] = False,
-) -> FileResponse:
+    format: Annotated[Literal["mp3"] | None, Query(description="mp3: convert WAV audio to MP3")] = None,
+) -> Response:
     if not verify(ctx.settings.secret_key, audio_id, exp, sig):
         raise ApiError(403, "LINK_EXPIRED", "This audio link is invalid or has expired. Refresh and try again.")
     record = ctx.repo.get(audio_id)
@@ -90,6 +93,18 @@ def get_audio_file(
     path = ctx.storage.path_for(record.storage_key)
     if not path.exists():
         raise ApiError(404, "NOT_FOUND", "Audio file is missing.")
+    if format == "mp3" and record.format != "mp3":
+        safe = re.sub(r'[\\/:*?"<>|]+', "_", record.title).strip() or "audio"
+        mp3 = wav_to_mp3(path.read_bytes())
+        disposition = "attachment" if download else "inline"
+        return Response(
+            mp3,
+            media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(safe)}.mp3",
+                "Cache-Control": "private, max-age=300",
+            },
+        )
     return FileResponse(
         path,
         media_type=record.mime_type,

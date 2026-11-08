@@ -7,3 +7,4 @@ mutagen>=1.47
 PyYAML>=6.0
 firebase-admin>=6.5,<8
 httpx>=0.27
+lameenc>=1.7            # WAV -> MP3 downloads (bundled LAME; no ffmpeg)

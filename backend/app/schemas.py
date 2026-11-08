@@ -74,3 +74,70 @@ class VoiceOut(BaseModel):
 
 class VoicesOut(BaseModel):
     voices: list[VoiceOut]
+
+
+# --- Personal voice cloning ------------------------------------------------------------
+
+CloneCategory = Literal["female", "male"]
+
+
+class ConsentIn(BaseModel):
+    confirmed: bool = Field(description="Must be true: the user owns the voice or has explicit permission.")
+    relationship: Literal["self", "permission"] = Field(description="My own voice, or a speaker who gave permission.")
+    speaker_name: str | None = Field(default=None, max_length=80, description="Who is speaking in the sample.")
+    statement: str = Field(min_length=10, max_length=600, description="The consent text the user agreed to.")
+
+
+class CreateProfileIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    category: CloneCategory = Field(description="Label only; the voice always comes from the recorded speaker.")
+    recording_language: str = Field(min_length=2, max_length=5)
+    provider: str | None = Field(default=None, max_length=20, description="Defaults to the server's default provider.")
+    consent: ConsentIn
+
+
+class ProfileOut(BaseModel):
+    id: str
+    name: str
+    category: CloneCategory
+    recording_language: str
+    provider: str
+    provider_voice_id: str | None = None
+    status: Literal["draft", "ready", "failed"]
+    created_at: str
+    updated_at: str
+    transcript: str | None = None
+    consent: dict[str, Any] = Field(default_factory=dict)
+    sample: AudioItemOut | None = None
+    preview: AudioItemOut | None = None
+    error: str | None = None
+    warning: str | None = None
+
+
+class ProfilesOut(BaseModel):
+    profiles: list[ProfileOut]
+
+
+class CloneTtsIn(BaseModel):
+    profile_id: str = Field(min_length=8, max_length=64)
+    text: str = Field(min_length=1, max_length=20_000)
+    language: str = Field(min_length=2, max_length=5)
+    speed: float = Field(default=1.0, ge=0.5, le=2.0)
+    title: str | None = Field(default=None, max_length=120)
+
+
+class GenerationOut(BaseModel):
+    id: str
+    profile_id: str
+    profile_name: str
+    text: str
+    language: str
+    provider: str
+    speed: float
+    created_at: str
+    audio: AudioItemOut | None = None
+
+
+class GenerationsOut(BaseModel):
+    items: list[GenerationOut]
+    next_cursor: str | None = None

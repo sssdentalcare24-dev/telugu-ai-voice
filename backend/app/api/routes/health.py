@@ -15,6 +15,7 @@ def health(ctx: Ctx) -> dict:
     caps = ctx.registry.capabilities()
     caps["storage"] = {"available": True, "backend": ctx.storage.backend_name}
     caps["history"] = {"available": True, "backend": ctx.repo.backend_name}
+    caps["voice_cloning"] = ctx.clone.capability()
     return {
         "status": "ok",
         "service": s.app_name,
