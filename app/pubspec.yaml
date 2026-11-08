@@ -1,0 +1,42 @@
+name: telugu_ai_voice
+description: "తెలుగు AI Voice – Telugu Voice Studio"
+publish_to: 'none'
+version: 0.3.0+3
+
+environment:
+  sdk: ^3.8.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.2              # REST calls to the FastAPI backend
+  shared_preferences: ^2.3.2 # theme, server URL, dev user
+  file_selector: ^1.0.3      # pick audio files (Android + web), first-party
+  url_launcher: ^6.3.0       # open / download signed audio links
+  flutter_tts: ^4.2.0        # offline 'Phone voice' using the phone's own Telugu TTS
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  # Bundled so Telugu renders correctly offline, on every Android version and on the web
+  # (no runtime download from Google Fonts). Licence: SIL OFL 1.1 - see assets/fonts/OFL.txt
+  fonts:
+    - family: NotoSans
+      fonts:
+        - asset: assets/fonts/NotoSans-Regular.ttf
+        - asset: assets/fonts/NotoSans-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/NotoSans-Bold.ttf
+          weight: 700
+    - family: NotoSansTelugu
+      fonts:
+        - asset: assets/fonts/NotoSansTelugu-Regular.ttf
+        - asset: assets/fonts/NotoSansTelugu-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/NotoSansTelugu-Bold.ttf
+          weight: 700

@@ -1,0 +1,69 @@
+# Telugu voice catalog.
+#
+# Edit this file to add, remove or rename voices - no code changes needed.
+# `provider` must match a TTS provider enabled in TTS_PROVIDERS.
+# `provider_voice` is the vendor's own voice name.
+#
+# Accent note: Google and Azure currently publish one general Telugu (te-IN)
+# accent. Neither offers separate Telangana or Andhra accent voices, so every
+# entry is marked accent: standard. Add regional voices here if a provider
+# (or a custom-trained voice) offers them later.
+
+voices:
+  # ---- Google Cloud Text-to-Speech -----------------------------------------
+  - id: google-te-female-hd
+    provider: google
+    provider_voice: te-IN-Chirp3-HD-Kore
+    gender: female
+    display_name: "Female · Google Chirp 3 HD (Kore)"
+    display_name_te: "స్త్రీ స్వరం · HD"
+    quality: hd
+    supports_pitch: false   # Chirp 3 HD has no pitch parameter
+    notes: "Most natural Google voice. Speed adjustable; pitch not supported."
+
+  - id: google-te-male-hd
+    provider: google
+    provider_voice: te-IN-Chirp3-HD-Charon
+    gender: male
+    display_name: "Male · Google Chirp 3 HD (Charon)"
+    display_name_te: "పురుష స్వరం · HD"
+    quality: hd
+    supports_pitch: false
+    notes: "Most natural Google voice. Speed adjustable; pitch not supported."
+
+  - id: google-te-female-standard
+    provider: google
+    provider_voice: te-IN-Standard-A
+    gender: female
+    display_name: "Female · Google Standard A"
+    display_name_te: "స్త్రీ స్వరం · స్టాండర్డ్"
+    quality: standard
+    supports_pitch: true
+
+  - id: google-te-male-standard
+    provider: google
+    provider_voice: te-IN-Standard-B
+    gender: male
+    display_name: "Male · Google Standard B"
+    display_name_te: "పురుష స్వరం · స్టాండర్డ్"
+    quality: standard
+    supports_pitch: true
+
+  # ---- Azure AI Speech -------------------------------------------------------
+  - id: azure-te-female-shruti
+    provider: azure
+    provider_voice: te-IN-ShrutiNeural
+    gender: female
+    display_name: "Female · Azure Shruti (Neural)"
+    display_name_te: "శ్రుతి · న్యూరల్"
+    quality: neural
+    supports_pitch: true    # via SSML prosody
+
+  - id: azure-te-male-mohan
+    provider: azure
+    provider_voice: te-IN-MohanNeural
+    gender: male
+    display_name: "Male · Azure Mohan (Neural)"
+    display_name_te: "మోహన్ · న్యూరల్"
+    quality: neural
+    supports_pitch: true

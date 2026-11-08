@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="te">
+<head>
+  <!--
+    $FLUTTER_BASE_HREF is replaced by `flutter build web --base-href /path/`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="తెలుగు AI Voice – Telugu Voice Studio: Telugu text-to-speech and voice conversion.">
+  <meta name="theme-color" content="#0B3C6D">
+
+  <!-- iOS / installable web app -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Telugu AI Voice">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>తెలుగు AI Voice – Telugu Voice Studio</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    html, body { margin: 0; height: 100%; background: #F5F7FA; }
+    @media (prefers-color-scheme: dark) { html, body { background: #07111F; } }
+    #boot {
+      position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 14px;
+      font-family: system-ui, sans-serif; color: #0B3C6D;
+    }
+    #boot img { width: 88px; height: 88px; border-radius: 22px; }
+    #boot span { font-size: 14px; opacity: .75; }
+  </style>
+</head>
+<body>
+  <!-- Shown until Flutter draws its first frame. -->
+  <div id="boot" aria-hidden="true">
+    <img src="icons/Icon-192.png" alt="">
+    <span>Loading Telugu Voice Studio…</span>
+  </div>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var el = document.getElementById('boot');
+      if (el) el.remove();
+    });
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
