@@ -18,6 +18,7 @@ import 'package:telugu_ai_voice/core/state/app_controller.dart';
 import 'package:telugu_ai_voice/core/state/app_scope.dart';
 import 'package:telugu_ai_voice/core/theme/app_theme.dart';
 import 'package:telugu_ai_voice/core/tts/device_tts.dart';
+import 'package:telugu_ai_voice/features/cloning/cloning_screen.dart';
 import 'package:telugu_ai_voice/features/convert/convert_screen.dart';
 import 'package:telugu_ai_voice/features/tts/tts_screen.dart';
 import 'package:telugu_ai_voice/widgets/telugu_keyboard.dart';
@@ -76,6 +77,9 @@ class FakePlayback extends AudioPlayback {
 
 /// Stands in for the microphone.
 class FakeRecorder extends MicRecorder {
+  FakeRecorder({this.seconds = 2});
+
+  final double seconds;
   bool _on = false;
   int starts = 0;
 
@@ -92,7 +96,7 @@ class FakeRecorder extends MicRecorder {
   @override
   Future<Uint8List?> stop() async {
     _on = false;
-    return makeWav(2, sampleRate: 16000);
+    return makeWav(seconds, sampleRate: 16000);
   }
 
   @override
@@ -286,7 +290,8 @@ void main() {
     expect(find.text('స్త్రీ → పురుష స్వరం'), findsOneWidget);
     expect(find.text('లైవ్ వాయిస్ ఛేంజర్'), findsOneWidget);
     // Without a server provider, voice and conversions use the free online engines.
-    expect(find.text('Free online'), findsNWidgets(3));
+    expect(find.text('Free online'), findsNWidgets(4)); // voice, cloning, both conversions
+    expect(find.text('AI Voice Cloning'), findsOneWidget);
     expect(find.text('Unavailable'), findsOneWidget); // no free live streaming engine
     expect(find.text('Server online'), findsOneWidget);
   });
@@ -295,7 +300,7 @@ void main() {
     final app = await _startApp(tester, offline: true);
     expect(app.connection, ServerConnection.offline);
     expect(find.text('Free online AI voices'), findsOneWidget);
-    expect(find.text('Free online'), findsNWidgets(3));
+    expect(find.text('Free online'), findsNWidgets(4));
     expect(find.text('Offline'), findsOneWidget); // live conversion needs a server
   });
 
@@ -414,6 +419,82 @@ void main() {
     final saved = app.localAudio.items.single;
     expect(saved.kind, 'converted');
     expect(saved.seconds, closeTo(1.5, 0.01));
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('AI Voice Cloning: record once, save the voice, then speak new text in it', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final spaces = FakeSpaces();
+    final app = _controller(prefs, offline: true, spaces: spaces);
+    final mic = FakeRecorder(seconds: 9);
+    await tester.pumpWidget(
+      AppScope(
+        controller: app,
+        child: MaterialApp(theme: AppTheme.light(), home: Scaffold(body: CloningScreen(recorder: mic))),
+      ),
+    );
+    await tester.pump();
+    Finder key(String k) => find.byKey(Key(k));
+    expect(tester.widget<FilledButton>(key('clone-create')).onPressed, isNull);
+
+    await tester.enterText(key('clone-name'), 'Amma');
+    await tester.tap(key('cat-female'));
+    await tester.pump();
+
+    // Record once (the app explains the microphone first).
+    await tester.ensureVisible(key('clone-record'));
+    await tester.tap(key('clone-record'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    expect(mic.starts, 1);
+    await tester.tap(key('clone-record'));
+    await tester.pump();
+    await tester.pump();
+    expect(key('clone-sample'), findsOneWidget);
+    // The reading script is the transcript the engine needs.
+    final transcript = tester.widget<TextField>(key('clone-transcript')).controller!.text;
+    expect(transcript, contains('వాతావరణం'));
+
+    // Consent is required.
+    expect(tester.widget<FilledButton>(key('clone-create')).onPressed, isNull);
+    await tester.ensureVisible(key('clone-consent'));
+    await tester.tap(key('clone-consent'));
+    await tester.pump();
+    expect(tester.widget<FilledButton>(key('clone-create')).onPressed, isNotNull);
+
+    await tester.ensureVisible(key('clone-create'));
+    await tester.tap(key('clone-create'));
+    await _pumpFor(tester);
+    final profile = app.phoneClone.profiles.single;
+    expect(profile.name, 'Amma');
+    expect(profile.category, 'female');
+    expect(profile.consent['relationship'], 'self');
+    expect(profile.consent['accepted_at'], isNotNull);
+    expect(profile.preview, isNotNull);
+    expect(spaces.calls, ['upload', 'synthesize_speech']); // sample sent, preview spoken
+    expect(spaces.lastData[2], transcript);
+    await tester.pump(const Duration(seconds: 1));
+
+    // My Voices shows it; "Use this voice" opens Text to Speech.
+    expect(key('profile-${profile.id}'), findsOneWidget);
+    await tester.tap(key('use-${profile.id}'));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.ensureVisible(key('clone-generate'));
+    await tester.tap(key('clone-generate'));
+    await _pumpFor(tester);
+    expect(spaces.calls.last, 'synthesize_speech');
+    expect(spaces.lastData.first, contains('భోజనం')); // the new Telugu text, no new recording
+    expect(spaces.lastData[2], transcript);
+    expect(key('clone-result'), findsOneWidget);
+    final made = app.localAudio.items.single;
+    expect(made.kind, 'clone');
+    expect(made.detail, contains('Amma'));
+    expect((app.playback as FakePlayback).played, contains(made.id));
     await tester.pump(const Duration(seconds: 5));
   });
 

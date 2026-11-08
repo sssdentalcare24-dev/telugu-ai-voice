@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/api_client.dart';
 import '../api/api_models.dart';
+import '../cloning/clone_service.dart';
 import '../config/app_config.dart';
 import '../free/audio_playback.dart';
 import '../free/free_voice_engine.dart';
@@ -25,6 +26,12 @@ class AppController extends ChangeNotifier {
         localAudio = localAudio ?? LocalAudioStore(prefs: prefs),
         freeEngine = freeEngine ?? FreeVoiceEngine(),
         playback = playback ?? AudioPlayback() {
+    phoneClone = LocalCloneService(
+      store: this.localAudio,
+      engine: this.freeEngine,
+      prefs: prefs,
+      persist: this.localAudio.persistent,
+    );
     final mode = prefs.getString(_kTheme);
     _themeMode = ThemeMode.values.firstWhere((m) => m.name == mode, orElse: () => ThemeMode.system);
     _apiBaseUrl = prefs.getString(_kApiBase) ?? AppConfig.defaultApiBaseUrl;
@@ -47,6 +54,13 @@ class AppController extends ChangeNotifier {
 
   /// In-app player for [localAudio] clips.
   final AudioPlayback playback;
+
+  /// Personal voices kept on this phone (free IndicF5 engine).
+  late final LocalCloneService phoneClone;
+
+  /// Personal voices on the app server, when the server offers cloning.
+  ServerCloneService? _serverClone;
+  ServerCloneService? get serverClone => _serverClone;
 
   late ThemeMode _themeMode;
   late String _apiBaseUrl;
@@ -94,11 +108,18 @@ class AppController extends ChangeNotifier {
       _health = health;
       _voices = voices;
       _connection = ServerConnection.online;
+      final cloning = health.voiceCloning?.available ?? false;
+      if (!cloning) {
+        _serverClone = null;
+      } else if (_serverClone?.api != _api) {
+        _serverClone = ServerCloneService(_api);
+      }
     } on ApiException catch (e) {
       if (token != _refreshToken) return;
       _health = null;
       _voices = const [];
       _connection = ServerConnection.offline;
+      _serverClone = null;
       _lastError = e.message;
     }
     notifyListeners();

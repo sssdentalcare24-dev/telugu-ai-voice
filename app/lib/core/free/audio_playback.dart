@@ -28,6 +28,8 @@ class AudioPlayback extends ChangeNotifier {
     try {
       if (!kIsWeb && item.path != null) {
         await player.play(DeviceFileSource(item.path!));
+      } else if (item.bytes == null && item.path == null && item.url != null) {
+        await player.play(UrlSource(item.url!));
       } else {
         await player.play(BytesSource(await loadBytes()));
       }

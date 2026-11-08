@@ -12,10 +12,13 @@ import '../../widgets/mic_hero.dart';
 import '../../widgets/waveform.dart';
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key, this.onOpenHistory});
+  const HomeScreen({super.key, this.onOpenHistory, this.onOpenCloning});
 
   /// Lets the shell switch to its History tab instead of pushing a new page.
   final VoidCallback? onOpenHistory;
+
+  /// Lets the shell switch to its AI Voice Cloning tab.
+  final VoidCallback? onOpenCloning;
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +31,14 @@ class HomeScreen extends StatelessWidget {
         description: 'Type Telugu and hear it in a natural female or male voice. Save and share it.',
         status: FeatureStatus.of(app, Feature.tts),
         onTap: () => Navigator.pushNamed(context, AppRoutes.tts),
+      ),
+      FeatureCard(
+        icon: Icons.record_voice_over_rounded,
+        titleTe: 'AI వాయిస్ క్లోనింగ్',
+        titleEn: 'AI Voice Cloning',
+        description: 'Record a voice once, then type any text and hear it in that voice – Telugu and 10 more languages.',
+        status: FeatureStatus.of(app, Feature.cloning),
+        onTap: onOpenCloning ?? () => Navigator.pushNamed(context, AppRoutes.cloning),
       ),
       FeatureCard(
         icon: Icons.woman_rounded,

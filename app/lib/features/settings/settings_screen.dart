@@ -176,6 +176,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       (Feature.tts, 'Telugu text to voice'),
                       (Feature.maleToFemale, 'Male → female conversion'),
                       (Feature.femaleToMale, 'Female → male conversion'),
+                      (Feature.cloning, 'AI voice cloning'),
                       (Feature.live, 'Live voice changer'),
                     ])
                       _FeatureRow(name: name, status: FeatureStatus.of(app, feature)),
@@ -199,6 +200,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'over time).\n\n'
                   '• Natural Telugu voice: AI4Bharat IndicF5 (IIT Madras). Your text is sent to it.\n'
                   '• Voice conversion: Seed-VC. Your recording is uploaded to it.\n'
+                  '• AI voice cloning: IndicF5 speaks in a voice you recorded. The saved sample is sent with each request.\n'
                   '• Results are saved only on this phone. Use Share to keep a copy elsewhere.\n'
                   '• Live (real-time) conversion has no free streaming engine, so it stays off.',
                   style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),

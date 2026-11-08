@@ -186,3 +186,31 @@ telugu-ai-voice/
 | 6 | Live streaming conversion | Needs a streaming engine (GPU host or vendor) |
 | 7 | Cloud Storage + Firestore history, share sheet | Needs Firebase project |
 | 8 | Hardening, rate limits, CI, deployment, release APK signing | — |
+
+## Personal voice cloning (added in 0.5)
+
+```
+Flutter  CloningScreen ─┬─ LocalCloneService  ── FreeVoiceEngine ── IndicF5 Space (Hugging Face)
+ (Create / My Voices /  │     profiles + samples + consent on the phone
+  Text to Speech)       └─ ServerCloneService ── /api/clone/* ── CloneRegistry ─┬─ IndicF5CloneProvider (+HF_TOKEN)
+                                                                                ├─ SarvamCloneProvider  (SARVAM_API_KEY)
+                                                                                └─ ElevenLabsCloneProvider (ELEVENLABS_API_KEY)
+                                    SQLite: voice_profiles, clone_generations, audio_items
+```
+
+* One interface on each side (`CloneService` in the app, `VoiceCloneProvider` on the server), so a
+  provider is added by writing one class and one line in `CLONE_FACTORIES`.
+* A profile always stores the speaker's own sample and a consent record. Category (female/male) is a
+  label only; nothing converts one gender into another by pitch.
+* Zero-shot providers (IndicF5) keep the sample and send it with each request; saved-voice providers
+  (Sarvam, ElevenLabs) store a provider voice id, which is deleted with the profile.
+
+### Planned on this base (not implemented yet – the app does not offer them)
+
+| Future feature | How it plugs in |
+|---|---|
+| Voice-to-voice in a saved voice | `VoiceConversionProvider` with the profile as target (ElevenLabs speech-to-speech with the cloned `voice_id`, or Seed-VC with the stored sample). |
+| Real-time male↔female / live conversations | `LiveConversionProvider` + `/api/voice/live/session` WebSocket, only with a genuine streaming engine (e.g. a GPU server running a streaming VC model). Until then the Live screen stays *Unavailable*. |
+| Telugu conversational assistant | Speech-to-text (e.g. Sarvam Saarika) → LLM → `POST /api/clone/tts` with the user's chosen voice. |
+| More personal profiles | Already supported (`MAX_VOICE_PROFILES`). |
+| WhatsApp sharing, MP3/WAV downloads | Done: Android share sheet; `?format=mp3` on signed links. |

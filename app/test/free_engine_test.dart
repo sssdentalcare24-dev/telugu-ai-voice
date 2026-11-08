@@ -1,8 +1,12 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:telugu_ai_voice/core/cloning/clone_models.dart';
+import 'package:telugu_ai_voice/core/cloning/clone_service.dart';
+import 'package:telugu_ai_voice/core/cloning/time_stretch.dart';
 import 'package:telugu_ai_voice/core/free/free_voice_engine.dart';
 import 'package:telugu_ai_voice/core/free/gradio_space.dart';
 import 'package:telugu_ai_voice/core/free/local_audio_store.dart';
@@ -14,6 +18,8 @@ Uint8List _wav(double seconds, {int rate = 24000}) => buildWav(
     );
 
 void main() {
+  _cloningGroup();
+
   group('WAV helpers', () {
     test('reads the length of a WAV file', () {
       expect(wavSeconds(_wav(2.5)), closeTo(2.5, 1e-6));
@@ -132,5 +138,116 @@ void main() {
     expect(await store.bytesOf(b), hasLength(44 + 24000 * 2 * 2));
     await store.delete(b);
     expect(store.items.single.title, 'one');
+  });
+}
+
+// ---- Voice cloning on the phone ---------------------------------------------------------
+
+Uint8List _tone(double seconds, {int rate = 24000}) {
+  final n = (rate * seconds).round();
+  final data = ByteData(n * 2);
+  for (var i = 0; i < n; i++) {
+    final v = (8000 * math.sin(2 * math.pi * 180 * i / rate)).round();
+    data.setInt16(i * 2, v, Endian.little);
+  }
+  return buildWav(
+    WavInfo(audioFormat: 1, channels: 1, sampleRate: rate, bitsPerSample: 16, dataOffset: 44, dataLength: 0),
+    data.buffer.asUint8List(),
+  );
+}
+
+MockClient _space(List<String> calls) => MockClient((req) async {
+      final path = req.url.path;
+      if (path == '/gradio_api/upload') {
+        calls.add('upload');
+        return http.Response('["/tmp/gradio/up/sample.wav"]', 200);
+      }
+      if (req.method == 'POST' && path.startsWith('/gradio_api/call/')) {
+        calls.add(path.split('/').last);
+        return http.Response('{"event_id":"e1"}', 200);
+      }
+      if (path.startsWith('/gradio_api/call/')) {
+        return http.Response('event: complete\ndata: [{"path": "/tmp/gradio/out/audio.wav"}]\n\n', 200);
+      }
+      if (path.startsWith('/gradio_api/file=')) return http.Response.bytes(_wav(1.2), 200);
+      return http.Response('', 404);
+    });
+
+const _consent = ConsentRecord(relationship: 'self', statement: 'This is my own voice.');
+
+void _cloningGroup() {
+  group('Speed control (WSOLA)', () {
+    test('faster and slower keep the format and change the length', () {
+      final input = _tone(2.0);
+      final fast = parseWav(timeStretchWav(input, 1.5))!;
+      final slow = parseWav(timeStretchWav(input, 0.75))!;
+      expect(fast.sampleRate, 24000);
+      expect(fast.seconds, closeTo(2.0 / 1.5, 0.08));
+      expect(slow.seconds, closeTo(2.0 / 0.75, 0.08));
+      expect(identical(timeStretchWav(input, 1.0), input), isTrue);
+    });
+  });
+
+  group('LocalCloneService', () {
+    test('records once, saves the voice, speaks any text, deletes', () async {
+      final calls = <String>[];
+      final store = LocalAudioStore.memory();
+      final service = LocalCloneService(store: store, engine: FreeVoiceEngine(client: _space(calls)), persist: false);
+
+      await expectLater(
+        service.createVoice(
+          name: 'Me', category: 'male', recordingLanguage: 'te', sample: _tone(2), filename: 'a.wav',
+          transcript: 'నమస్కారం', consent: _consent,
+        ),
+        throwsA(isA<CloneException>().having((e) => e.message, 'message', contains('at least 5'))),
+      );
+
+      final profile = await service.createVoice(
+        name: ' Me ', category: 'male', recordingLanguage: 'te', sample: _tone(8), filename: 'a.wav',
+        transcript: 'నమస్కారం, ఇది నా స్వరం.', consent: _consent,
+      );
+      expect(profile.name, 'Me');
+      expect(profile.ready, isTrue);
+      expect(profile.preview, isNotNull);
+      expect(profile.consent['confirmed'], isTrue);
+      expect(service.profiles, hasLength(1));
+      expect(store.items, isEmpty); // samples and previews are not listed in History
+
+      final item = await service.speak(profile: profile, text: 'आप कैसे हैं?', language: 'hi');
+      expect(item.kind, 'clone');
+      expect(item.detail, contains('Hindi'));
+      expect(service.history.single.id, item.id);
+      expect(calls.where((c) => c == 'upload'), hasLength(2)); // the sample goes with each request
+
+      await expectLater(
+        service.speak(profile: profile, text: 'Hello', language: 'en'),
+        throwsA(isA<CloneException>()),
+      );
+
+      await service.deleteVoice(profile);
+      expect(service.profiles, isEmpty);
+      await service.deleteGeneration(item);
+      expect(service.history, isEmpty);
+    });
+
+    test('a busy server still saves the voice, with a warning', () async {
+      final store = LocalAudioStore.memory();
+      final busy = MockClient((req) async => http.Response('starting', 503));
+      final service = LocalCloneService(store: store, engine: FreeVoiceEngine(client: busy), persist: false);
+      final profile = await service.createVoice(
+        name: 'Me', category: 'female', recordingLanguage: 'te', sample: _tone(6), filename: 'a.wav',
+        transcript: 'నమస్కారం', consent: _consent,
+      );
+      expect(profile.preview, isNull);
+      expect(profile.warning, contains('preview could not be made'));
+      expect(service.profiles, hasLength(1));
+    });
+
+    test('languages: script detection and the free engine list', () {
+      expect(CloneLanguage.byCode('te').matches('నమస్కారం'), isTrue);
+      expect(CloneLanguage.byCode('te').matches('नमस्ते'), isFalse);
+      expect(CloneLanguage.all, hasLength(12));
+      expect(CloneProviderInfo.indicF5OnPhone.languages, isNot(contains('en')));
+    });
   });
 }

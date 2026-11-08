@@ -24,10 +24,71 @@ One Flutter codebase for the **Android app** and the **web app / PWA**, with a *
 | Phone voice (Android's own Telugu TTS, offline) | ✅ Working | Telugu voice data on the phone |
 | Male→female / female→male conversion – **free online** | ✅ Working (Seed-VC on Hugging Face) | Internet; small free daily limit |
 | Microphone recording, in-app player, share sheet, history on the phone | ✅ Working | – |
+| **AI Voice Cloning**: record once, then speak any text in that voice (11 Indian languages) – **free online** | ✅ Working (IndicF5 on Hugging Face) | Internet; small free daily limit |
+| AI Voice Cloning via the server (Sarvam AI / ElevenLabs, English too, MP3) | ✅ Backend done | **Sarvam** or **ElevenLabs** API key (paid) |
 | Telugu TTS via the backend | ⏳ Stage 3 | **Google Cloud TTS** and/or **Azure Speech** key (paid) |
 | Conversion via the backend | ⏳ Stages 4–5 | **Speech-to-speech API key** or own GPU server |
 | Live voice changer | ⏳ Stage 6 – shown as *Unavailable* | **Streaming conversion engine** (GPU server or vendor) |
 | Cloud Storage/Firestore history | ⏳ Stage 7 | Firebase project |
+
+### AI Voice Cloning (record once, speak any text)
+
+New **AI Voice Cloning** tab (bottom navigation) with three sections: **Create Voice**, **My Voices**
+and **Text to Speech**. A user records an authorised voice once (or uploads a file), confirms consent,
+and the voice is saved. After that they type any text, pick the voice and the output language, and get
+speech in that voice. It plays in the app and can be shared or downloaded. Selecting *Female* or *Male*
+only labels a profile. A female voice must be recorded by a female speaker who agreed to it; the app
+never fakes it with pitch shifting.
+
+The app runs in one of two modes, shown at the top of the screen:
+
+| | **This phone · free** (works today) | **App server** (when the backend is running) |
+|---|---|---|
+| Engine | AI4Bharat IndicF5 on Hugging Face (zero-shot cloning) | IndicF5, Sarvam AI or ElevenLabs – chosen per voice |
+| Where voices live | Phone storage (sample + transcript + consent record) | Server database (SQLite now; Firestore in Stage 7) |
+| Languages | Telugu, Hindi, Tamil, Kannada, Malayalam, Marathi, Bengali, Gujarati, Punjabi, Odia, Assamese | Same, plus English (Sarvam: Indian English; ElevenLabs: all 12) |
+| Speed | Changed on the phone, pitch kept (WSOLA) | Sarvam/ElevenLabs native; IndicF5 normal speed |
+| Download | WAV (Share → Files/Drive/WhatsApp) | MP3 or WAV |
+| Limits | A few requests per day per internet connection | Your provider plan; per-user rate limits on the server |
+
+**Provider comparison** (checked November 2026; prices change, so re-check before you buy):
+
+| | AI4Bharat IndicF5 | Sarvam AI Instant Voice Cloning | ElevenLabs Instant Voice Cloning |
+|---|---|---|---|
+| Telugu | Yes (built for 11 Indian languages) | Yes | Yes (`eleven_v4`, 90+ languages) |
+| Sample needed | 5–15 s **plus the exact words spoken** | 5–60 s (10–15 s recommended) | 1–2 min recommended |
+| Cross-lingual | Yes | Yes | Yes |
+| API | Public Gradio demo Space (no SLA) | REST, beta (`/voices/create`, `/voices/clone`) | REST (`/v1/voices/add`, `/v1/text-to-speech`) |
+| Price | Free (ZeroGPU daily allowance) | about ₹2 per 1,000 characters | Paid plan required (Starter about $6/month and up) |
+| Latency | 10–40 s (shared GPU queue) | seconds | seconds |
+| Commercial use | **Unclear – treat as personal/non-commercial.** Model card says MIT, but it builds on F5-TTS/Emilia and IIT-Madras data with non-commercial terms. | Allowed under Sarvam's terms and consent rules | Allowed on paid plans |
+
+Recommendation: start free with IndicF5. For a commercial product, use **Sarvam AI** (best value for
+Indian languages, data processed in India) or **ElevenLabs** (strongest English/multilingual), by setting
+the key on the server.
+
+**Server setup for cloning** (`backend/.env`): `VOICE_CLONE_PROVIDERS=indicf5,sarvam,elevenlabs`,
+`VOICE_CLONE_DEFAULT`, optional `HF_TOKEN` (free Hugging Face token, larger IndicF5 allowance),
+`SARVAM_API_KEY`, `ELEVENLABS_API_KEY` + `ELEVENLABS_TTS_MODEL=eleven_v4`, limits
+`MAX_VOICE_PROFILES`, `MAX_CLONE_CHARS`, `CLONE_CREATE_PER_HOUR`, `CLONE_GENERATE_PER_HOUR`.
+Keys stay on the server; the app never contains them.
+
+**Database changes**: two new SQLite tables, created automatically on start-up (no migration step).
+`voice_profiles` holds the user id, profile id, provider and provider voice id, category, recording
+language, transcript, consent record (JSON with statement, relationship, speaker name, accepted-at time),
+sample/preview audio ids and timestamps. `clone_generations` holds the user id, profile id and name,
+audio id, text, language, provider, speed and time. Samples and generated audio use the existing
+`audio_items` table and storage.
+
+**Endpoints** (all require sign-in; see [docs/API.md](docs/API.md)): `GET /api/clone/providers`,
+`POST /api/clone/profiles`, `POST /api/clone/profiles/{id}/sample`, `POST /api/clone/profiles/{id}/clone`,
+`GET /api/clone/profiles`, `GET|DELETE /api/clone/profiles/{id}`, `POST /api/clone/tts`,
+`GET /api/clone/history`, `DELETE /api/clone/history/{id}`; MP3 via `?format=mp3` on any signed audio link.
+
+**Deploying the server**: build `backend/Dockerfile` (or `docker compose up`), run it behind HTTPS
+(`deploy/nginx.conf`), set `APP_ENV=production`, `AUTH_MODE=firebase`, a strong `SECRET_KEY` and the
+keys above, and keep `data/` on a persistent disk. Then enter the server address in the app's Settings.
+The cloning screen shows an **App server** option as soon as the server reports cloning as available.
 
 ### Free online engines (no keys)
 

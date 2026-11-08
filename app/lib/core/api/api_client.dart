@@ -188,5 +188,45 @@ class ApiClient {
     return _decode(r) as Map<String, dynamic>;
   }
 
+  // ---- Generic JSON helpers (used by the voice cloning service) -------------------
+  Future<dynamic> getJson(String path, [Map<String, String>? query]) async {
+    final r = await _send(() async => _http.get(_uri(path, query), headers: await _headers()), _timeout);
+    return _decode(r);
+  }
+
+  Future<dynamic> postJson(String path, Map<String, Object?> body, {bool long = false}) async {
+    final r = await _send(
+      () async => _http.post(_uri(path), headers: await _headers(json: true), body: jsonEncode(body)),
+      long ? _longTimeout : _timeout,
+    );
+    return _decode(r);
+  }
+
+  Future<dynamic> postFile(
+    String path, {
+    required Uint8List bytes,
+    required String filename,
+    Map<String, String> fields = const {},
+  }) async {
+    final req = http.MultipartRequest('POST', _uri(path))
+      ..headers.addAll(await _headers())
+      ..fields.addAll(fields)
+      ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+    final r = await _send(() async => http.Response.fromStream(await _http.send(req)), _longTimeout);
+    return _decode(r);
+  }
+
+  Future<void> delete(String path) async {
+    final r = await _send(() async => _http.delete(_uri(path), headers: await _headers()), _timeout);
+    _decode(r);
+  }
+
+  /// Downloads a signed audio link (relative path from the API).
+  Future<Uint8List> download(String relativePath) async {
+    final r = await _send(() async => _http.get(resolve(relativePath)), _longTimeout);
+    if (r.statusCode != 200) _decode(r);
+    return r.bodyBytes;
+  }
+
   void close() => _http.close();
 }

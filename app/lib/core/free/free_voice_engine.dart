@@ -144,6 +144,48 @@ class FreeVoiceEngine {
     return result;
   }
 
+  /// Speaks [text] in the voice of [sample] (a WAV/MP3 recording of one
+  /// person saying exactly [transcript]) - zero-shot voice cloning with IndicF5.
+  /// The sample is uploaded with each request; nothing is stored at the server.
+  Future<Uint8List> synthesizeWithSample(
+    String text,
+    Uint8List sample,
+    String transcript, {
+    String filename = 'voice_sample.wav',
+    FreeProgress? onProgress,
+  }) async {
+    final chunks = splitForSpeech(text, maxChunk: chunkChars);
+    if (chunks.isEmpty) throw FreeEngineException('Type some text first.');
+    if (chunks.length > maxChunks) {
+      throw FreeEngineException('The free voice accepts up to about $maxChars letters at a time.');
+    }
+    if (transcript.trim().isEmpty) throw FreeEngineException('The voice sample has no transcript.');
+    final total = chunks.length + 1;
+    onProgress?.call(0, total, 'Sending your voice sample…');
+    final path = await tts.upload(sample, filename);
+    final clips = <Uint8List>[];
+    for (var i = 0; i < chunks.length; i++) {
+      onProgress?.call(i + 1, total, chunks.length == 1 ? 'Speaking in your voice…' : 'Speaking part ${i + 1} of ${chunks.length}…');
+      final out = await tts.call('synthesize_speech', [chunks[i], GradioSpace.fileData(path), transcript.trim()]);
+      final result = out.isEmpty ? null : GradioSpace.pathOf(out.first);
+      if (result == null) {
+        final message = out.isEmpty ? null : GradioSpace.valueOf(out.first);
+        throw FreeEngineException(
+          message is String && message.startsWith('Error')
+              ? '${tts.name}: $message'
+              : '${tts.name} did not return any audio. Please try again.',
+        );
+      }
+      clips.add(await tts.download(result));
+    }
+    onProgress?.call(total, total, 'Done');
+    try {
+      return concatWavs(clips);
+    } on ArgumentError {
+      throw FreeEngineException('${tts.name} returned audio in an unexpected format.');
+    }
+  }
+
   Future<({String path, String text})> _speakerSample(int example) async {
     final out = await tts.call('load_example', [example]);
     // Outputs: [text to speak, reference audio, text spoken in the reference]

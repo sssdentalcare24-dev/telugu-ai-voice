@@ -91,6 +91,7 @@ class ServerHealth {
     required this.voiceConversion,
     required this.liveConversion,
     required this.limits,
+    this.voiceCloning,
   });
 
   factory ServerHealth.fromJson(Map<String, dynamic> j) {
@@ -98,6 +99,7 @@ class ServerHealth {
     final tts = _map(caps['tts']);
     final vc = _map(caps['voice_conversion']);
     final live = _map(caps['live_conversion']);
+    final cloning = _map(caps['voice_cloning']);
     List<ProviderInfo> one(Map<String, dynamic> m) =>
         m['provider'] is Map<String, dynamic> ? [ProviderInfo.fromJson(_map(m['provider']))] : <ProviderInfo>[];
     return ServerHealth(
@@ -111,6 +113,12 @@ class ServerHealth {
       voiceConversion: Capability(available: _bool(vc['available']), providers: one(vc)),
       liveConversion: Capability(available: _bool(live['available']) && _bool(live['streaming']), providers: one(live)),
       limits: ServerLimits.fromJson(_map(j['limits'])),
+      voiceCloning: cloning.isEmpty
+          ? null
+          : Capability(
+              available: _bool(cloning['available']),
+              providers: _list(cloning['providers']).map((e) => ProviderInfo.fromJson(_map(e))).toList(),
+            ),
     );
   }
 
@@ -121,6 +129,9 @@ class ServerHealth {
   final Capability voiceConversion;
   final Capability liveConversion;
   final ServerLimits limits;
+
+  /// Personal voice cloning on the server (null on servers older than 0.3).
+  final Capability? voiceCloning;
 
   bool get devAuth => authMode == 'dev';
 }

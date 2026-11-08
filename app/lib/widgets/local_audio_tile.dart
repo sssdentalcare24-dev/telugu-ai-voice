@@ -12,10 +12,12 @@ Future<void> shareLocalAudio(BuildContext context, LocalAudio item) async {
   final app = AppScope.read(context);
   try {
     final XFile file;
+    final mime = item.format == 'mp3' ? 'audio/mpeg' : 'audio/wav';
+    final name = '${item.id}.${item.format}';
     if (!kIsWeb && item.path != null) {
-      file = XFile(item.path!, mimeType: 'audio/wav', name: '${item.id}.wav');
+      file = XFile(item.path!, mimeType: mime, name: name);
     } else {
-      file = XFile.fromData(await app.localAudio.bytesOf(item), mimeType: 'audio/wav', name: '${item.id}.wav');
+      file = XFile.fromData(await app.localAudio.bytesOf(item), mimeType: mime, name: name);
     }
     await Share.shareXFiles([file], text: item.title);
   } catch (_) {

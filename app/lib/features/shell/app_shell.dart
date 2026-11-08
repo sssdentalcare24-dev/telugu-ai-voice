@@ -3,11 +3,12 @@ import 'package:flutter/material.dart';
 import '../../core/config/app_config.dart';
 import '../../core/state/app_scope.dart';
 import '../../core/theme/app_colors.dart';
+import '../cloning/cloning_screen.dart';
 import '../history/history_screen.dart';
 import '../home/home_screen.dart';
 import '../settings/settings_screen.dart';
 
-enum ShellTab { home, history, settings }
+enum ShellTab { home, cloning, history, settings }
 
 /// Top-level layout: bottom navigation on phones, a side rail on wide screens.
 class AppShell extends StatefulWidget {
@@ -24,12 +25,17 @@ class _AppShellState extends State<AppShell> {
 
   static const _destinations = [
     (ShellTab.home, Icons.home_outlined, Icons.home_rounded, 'హోమ్', 'Home'),
+    (ShellTab.cloning, Icons.record_voice_over_outlined, Icons.record_voice_over_rounded, 'క్లోనింగ్', 'AI Voice Cloning'),
     (ShellTab.history, Icons.library_music_outlined, Icons.library_music_rounded, 'చరిత్ర', 'History'),
     (ShellTab.settings, Icons.settings_outlined, Icons.settings_rounded, 'సెట్టింగ్స్', 'Settings'),
   ];
 
   Widget _page() => switch (_tab) {
-        ShellTab.home => HomeScreen(onOpenHistory: () => setState(() => _tab = ShellTab.history)),
+        ShellTab.home => HomeScreen(
+            onOpenHistory: () => setState(() => _tab = ShellTab.history),
+            onOpenCloning: () => setState(() => _tab = ShellTab.cloning),
+          ),
+        ShellTab.cloning => const CloningScreen(),
         ShellTab.history => const HistoryScreen(),
         ShellTab.settings => const SettingsScreen(),
       };

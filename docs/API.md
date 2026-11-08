@@ -110,3 +110,26 @@ permission and expires after `DOWNLOAD_URL_TTL_SECONDS`. `download=true` → sav
 }
 ```
 `download_url` is relative – prefix it with the API base URL.
+
+
+## Personal voice cloning (`/api/clone`)
+
+All endpoints need sign-in (Firebase ID token, or `X-Dev-User` in dev mode). Users only ever see their
+own profiles and audio (other users' ids return 404).
+
+| Method & path | Purpose |
+|---|---|
+| `GET /api/clone/providers` | Providers with `state`, `ready`, `paid`, `min_seconds`, `max_seconds`, `needs_transcript`, `languages`, `cross_lingual`, `supports_speed`; the 12 languages; limits |
+| `POST /api/clone/profiles` | Step 1. JSON `{name, category: female\|male, recording_language, provider?, consent: {confirmed: true, relationship: self\|permission, speaker_name?, statement}}` → profile (`status: draft`). 400 `CONSENT_REQUIRED` without consent. Rate-limited. |
+| `POST /api/clone/profiles/{id}/sample` | Step 2. Multipart `file` (WAV/MP3/OGG/FLAC/M4A) + `transcript` (required by IndicF5). Checks real format, size and the provider's min/max length. |
+| `POST /api/clone/profiles/{id}/clone` | Step 3. Creates the voice at the provider, stores the provider voice id, makes a short preview. `warning` is set if only the preview failed. |
+| `GET /api/clone/profiles` / `GET /api/clone/profiles/{id}` | My voice library (with signed links to sample and preview) |
+| `DELETE /api/clone/profiles/{id}` | Deletes the profile, its sample and preview, and the voice at the provider |
+| `POST /api/clone/tts` | JSON `{profile_id, text, language, speed}` → generation with signed audio link. Rate-limited. 422 `UNSUPPORTED_LANGUAGE` if the provider cannot speak it. |
+| `GET /api/clone/history?profile_id=&limit=&before=` | Generation history, newest first |
+| `DELETE /api/clone/history/{id}` | Deletes a generation and its audio |
+| `GET /api/audio/{id}/file?exp=&sig=&format=mp3&download=true` | MP3 download of any WAV audio |
+
+Errors use the usual envelope. Provider problems map to `PROVIDER_NOT_CONFIGURED` (503),
+`PROVIDER_BUSY` (429/503), `PROVIDER_QUOTA` (402), `PROVIDER_TIMEOUT` (504), `PROVIDER_ERROR` (502);
+rate limits to `RATE_LIMITED` (429, with `details.retry_after_seconds`).

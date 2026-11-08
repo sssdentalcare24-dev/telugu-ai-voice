@@ -27,12 +27,14 @@ Future<void> openAudio(BuildContext context, AudioItem item, {bool download = fa
 IconData kindIcon(String kind) => switch (kind) {
       'tts' => Icons.record_voice_over_rounded,
       'converted' => Icons.swap_horiz_rounded,
+      'clone' => Icons.record_voice_over_rounded,
       _ => Icons.mic_rounded,
     };
 
 String kindLabel(String kind) => switch (kind) {
       'tts' => 'Text to voice',
       'converted' => 'Converted',
+      'clone' => 'Personal voice',
       _ => 'Original',
     };
 

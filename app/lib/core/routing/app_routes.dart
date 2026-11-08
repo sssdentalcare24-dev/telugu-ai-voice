@@ -15,6 +15,7 @@ abstract final class AppRoutes {
   static const String maleToFemale = '/convert/male-to-female';
   static const String femaleToMale = '/convert/female-to-male';
   static const String live = '/live';
+  static const String cloning = '/cloning';
 
   static Route<dynamic> onGenerateRoute(RouteSettings routeSettings) {
     final Widget page = switch (routeSettings.name) {
@@ -24,6 +25,7 @@ abstract final class AppRoutes {
       AppRoutes.live => const LiveScreen(),
       AppRoutes.history => const AppShell(initialTab: ShellTab.history),
       AppRoutes.settings => const AppShell(initialTab: ShellTab.settings),
+      AppRoutes.cloning => const AppShell(initialTab: ShellTab.cloning),
       _ => const AppShell(initialTab: ShellTab.home),
     };
     return MaterialPageRoute<void>(builder: (_) => page, settings: routeSettings);

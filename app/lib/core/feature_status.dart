@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
+import 'api/api_models.dart';
 import 'state/app_controller.dart';
 import 'theme/app_colors.dart';
 
-enum Feature { tts, maleToFemale, femaleToMale, live }
+enum Feature { tts, maleToFemale, femaleToMale, live, cloning }
 
 enum Availability { checking, offline, ready, needsSetup, unavailable, freeOnline }
 
@@ -22,6 +23,13 @@ class FeatureStatus {
   static FeatureStatus of(AppController app, Feature feature) {
     final server = serverOf(app, feature);
     if (feature == Feature.live || server.ready || server.availability == Availability.checking) return server;
+    if (feature == Feature.cloning) {
+      return const FeatureStatus(
+        Availability.freeOnline,
+        'Voices are saved on this phone and spoken by the free AI4Bharat IndicF5 server on Hugging Face. '
+        'Needs internet; a few voices per day for each internet connection.',
+      );
+    }
     return FeatureStatus(
       Availability.freeOnline,
       feature == Feature.tts
@@ -50,6 +58,7 @@ class FeatureStatus {
       Feature.tts => health.tts,
       Feature.maleToFemale || Feature.femaleToMale => health.voiceConversion,
       Feature.live => health.liveConversion,
+      Feature.cloning => health.voiceCloning ?? Capability(available: false, providers: const []),
     };
     if (cap.available) return const FeatureStatus(Availability.ready, 'Ready');
     if (feature == Feature.live) return FeatureStatus(Availability.unavailable, cap.reason);
