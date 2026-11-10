@@ -109,6 +109,52 @@ void main() {
     });
   });
 
+  group('Hugging Face account', () {
+    test('the token goes with every request to the voice servers', () async {
+      final auth = <String?>[];
+      final engine = FreeVoiceEngine(client: MockClient((req) async {
+        auth.add(req.headers['Authorization']);
+        if (req.url.path == '/gradio_api/upload') return http.Response('["/tmp/x.wav"]', 200);
+        if (req.method == 'POST') return http.Response('{"event_id":"e1"}', 200);
+        if (req.url.path.startsWith('/gradio_api/call/')) {
+          return http.Response('event: complete\ndata: [{"path": "/tmp/o.wav"}]\n\n', 200);
+        }
+        return http.Response.bytes(_wav(1), 200);
+      }));
+      engine.token = 'hf_abcdefghijklmnopqrstuvwxyz';
+      await engine.synthesizeWithSample('నమస్కారం', _wav(6), 'నమస్కారం');
+      expect(auth, hasLength(4)); // upload, call, result, download
+      expect(auth.every((a) => a == 'Bearer hf_abcdefghijklmnopqrstuvwxyz'), isTrue);
+      engine.token = null;
+      auth.clear();
+      await engine.synthesizeWithSample('నమస్కారం', _wav(6), 'నమస్కారం');
+      expect(auth.every((a) => a == null), isTrue);
+    });
+
+    test('checks the token with Hugging Face', () async {
+      final engine = FreeVoiceEngine(client: MockClient((req) async {
+        expect(req.url.toString(), 'https://huggingface.co/api/whoami-v2');
+        if (req.headers['Authorization'] == 'Bearer hf_goodgoodgoodgoodgood') {
+          return http.Response('{"type":"user","name":"samba","isPro":false}', 200);
+        }
+        return http.Response('{"error":"Invalid credentials"}', 401);
+      }));
+      final account = await engine.checkToken(' hf_goodgoodgoodgoodgood ');
+      expect(account.name, 'samba');
+      expect(account.dailyRequests, 5);
+      await expectLater(engine.checkToken('hf_badbadbadbadbadbadbad'), throwsA(isA<FreeEngineException>()));
+      await expectLater(engine.checkToken('not-a-token'), throwsA(isA<FreeEngineException>()));
+    });
+
+    test('a used-up allowance points to Settings, or to PRO when signed in', () {
+      expect(
+        GradioSpace.friendlyError('null', 'Server'),
+        contains('add your free Hugging Face account in Settings'),
+      );
+      expect(GradioSpace.friendlyError('null', 'Server', signedIn: true), contains('PRO'));
+    });
+  });
+
   group('Free engine limits', () {
     test('refuses recordings longer than a minute before uploading anything', () async {
       var requests = 0;
@@ -204,7 +250,7 @@ void _cloningGroup() {
 
       final profile = await service.createVoice(
         name: ' Me ', category: 'male', recordingLanguage: 'te', sample: _tone(8), filename: 'a.wav',
-        transcript: 'నమస్కారం, ఇది నా స్వరం.', consent: _consent,
+        transcript: 'నమస్కారం, ఇది నా స్వరం.', consent: _consent, makePreview: true,
       );
       expect(profile.name, 'Me');
       expect(profile.ready, isTrue);
@@ -236,11 +282,26 @@ void _cloningGroup() {
       final service = LocalCloneService(store: store, engine: FreeVoiceEngine(client: busy), persist: false);
       final profile = await service.createVoice(
         name: 'Me', category: 'female', recordingLanguage: 'te', sample: _tone(6), filename: 'a.wav',
-        transcript: 'నమస్కారం', consent: _consent,
+        transcript: 'నమస్కారం', consent: _consent, makePreview: true,
       );
       expect(profile.preview, isNull);
       expect(profile.warning, contains('preview could not be made'));
       expect(service.profiles, hasLength(1));
+    });
+
+    test('without a preview, saving a voice makes no requests', () async {
+      final calls = <String>[];
+      final service = LocalCloneService(
+        store: LocalAudioStore.memory(),
+        engine: FreeVoiceEngine(client: _space(calls)),
+        persist: false,
+      );
+      final profile = await service.createVoice(
+        name: 'Me', category: 'female', recordingLanguage: 'te', sample: _tone(6), filename: 'a.wav',
+        transcript: 'నమస్కారం', consent: _consent,
+      );
+      expect(profile.preview, isNull);
+      expect(calls, isEmpty);
     });
 
     test('languages: script detection and the free engine list', () {

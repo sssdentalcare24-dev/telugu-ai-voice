@@ -475,9 +475,9 @@ void main() {
     expect(profile.category, 'female');
     expect(profile.consent['relationship'], 'self');
     expect(profile.consent['accepted_at'], isNotNull);
-    expect(profile.preview, isNotNull);
-    expect(spaces.calls, ['upload', 'synthesize_speech']); // sample sent, preview spoken
-    expect(spaces.lastData[2], transcript);
+    expect(profile.preview, isNull); // preview is optional, to save the day's free uses
+    expect(profile.sample, isNotNull);
+    expect(spaces.calls, isEmpty); // saving a voice uses no free requests
     await tester.pumpAndSettle();
 
     // My Voices shows it; "Use this voice" opens Text to Speech.
@@ -487,7 +487,7 @@ void main() {
     await tester.ensureVisible(key('clone-generate'));
     await tester.tap(key('clone-generate'));
     await _pumpFor(tester);
-    expect(spaces.calls.last, 'synthesize_speech');
+    expect(spaces.calls, ['upload', 'synthesize_speech']);
     expect(spaces.lastData.first, contains('భోజనం')); // the new Telugu text, no new recording
     expect(spaces.lastData[2], transcript);
     expect(key('clone-result'), findsOneWidget);

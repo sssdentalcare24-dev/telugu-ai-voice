@@ -26,6 +26,11 @@ class AppController extends ChangeNotifier {
         localAudio = localAudio ?? LocalAudioStore(prefs: prefs),
         freeEngine = freeEngine ?? FreeVoiceEngine(),
         playback = playback ?? AudioPlayback() {
+    final token = prefs.getString(_kHfToken);
+    if (token != null && token.isNotEmpty) {
+      this.freeEngine.token = token;
+      _hfAccount = HfAccount(name: prefs.getString(_kHfName) ?? 'your account', isPro: prefs.getBool(_kHfPro) ?? false);
+    }
     phoneClone = LocalCloneService(
       store: this.localAudio,
       engine: this.freeEngine,
@@ -40,6 +45,9 @@ class AppController extends ChangeNotifier {
   }
 
   static const _kTheme = 'theme_mode';
+  static const _kHfToken = 'hf_token';
+  static const _kHfName = 'hf_account_name';
+  static const _kHfPro = 'hf_account_pro';
   static const _kApiBase = 'api_base_url';
   static const _kDevUser = 'dev_user';
 
@@ -54,6 +62,33 @@ class AppController extends ChangeNotifier {
 
   /// In-app player for [localAudio] clips.
   final AudioPlayback playback;
+
+  HfAccount? _hfAccount;
+
+  /// The user's own Hugging Face account, if they added a token in Settings.
+  HfAccount? get hfAccount => _hfAccount;
+
+  /// Checks and saves the user's Hugging Face token (kept on this phone only).
+  Future<HfAccount> setHfToken(String token) async {
+    final t = token.trim();
+    final account = await freeEngine.checkToken(t);
+    freeEngine.token = t;
+    _hfAccount = account;
+    await _prefs.setString(_kHfToken, t);
+    await _prefs.setString(_kHfName, account.name);
+    await _prefs.setBool(_kHfPro, account.isPro);
+    notifyListeners();
+    return account;
+  }
+
+  Future<void> clearHfToken() async {
+    freeEngine.token = null;
+    _hfAccount = null;
+    await _prefs.remove(_kHfToken);
+    await _prefs.remove(_kHfName);
+    await _prefs.remove(_kHfPro);
+    notifyListeners();
+  }
 
   /// Personal voices kept on this phone (free IndicF5 engine).
   late final LocalCloneService phoneClone;

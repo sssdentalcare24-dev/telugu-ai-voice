@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/config/app_config.dart';
 import '../../core/feature_status.dart';
+import '../../core/free/gradio_space.dart';
 import '../../core/state/app_controller.dart';
 import '../../core/state/app_scope.dart';
+import '../../core/theme/app_colors.dart';
 import '../../widgets/common.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -190,6 +193,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 14),
 
+              const _HfAccountCard(),
+              const SizedBox(height: 14),
+
               SectionCard(
                 title: 'Free AI engines · ఉచిత AI',
                 icon: Icons.auto_awesome_outlined,
@@ -281,6 +287,149 @@ class _StaticRow extends StatelessWidget {
         children: [
           Expanded(child: Text(name)),
           Text(detail, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline)),
+        ],
+      ),
+    );
+  }
+}
+
+
+/// Lets the user add their own free Hugging Face account so the free voice
+/// engines use that account's daily allowance (about 5 voices a day, or about
+/// 40 with PRO) instead of the shared one (about 2 a day).
+class _HfAccountCard extends StatefulWidget {
+  const _HfAccountCard();
+
+  @override
+  State<_HfAccountCard> createState() => _HfAccountCardState();
+}
+
+class _HfAccountCardState extends State<_HfAccountCard> {
+  final _token = TextEditingController();
+  bool _checking = false;
+  bool _hide = true;
+
+  @override
+  void dispose() {
+    _token.dispose();
+    super.dispose();
+  }
+
+  Future<void> _open(String url) async {
+    final ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    if (!ok && mounted) showMessage(context, 'Could not open $url', error: true);
+  }
+
+  Future<void> _save() async {
+    FocusScope.of(context).unfocus();
+    setState(() => _checking = true);
+    try {
+      final account = await AppScope.read(context).setHfToken(_token.text);
+      if (!mounted) return;
+      _token.clear();
+      showMessage(context, 'Added ${account.name} · about ${account.dailyRequests} voices a day');
+    } on FreeEngineException catch (e) {
+      if (mounted) showMessage(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppScope.of(context);
+    final account = app.hfAccount;
+    final theme = Theme.of(context);
+    final small = theme.textTheme.bodySmall?.copyWith(height: 1.5);
+    return SectionCard(
+      title: 'More free uses · Hugging Face account',
+      icon: Icons.bolt_rounded,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            key: const Key('hf-status'),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: (account == null ? AppColors.warning : AppColors.success).withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Text(
+              account == null
+                  ? 'Not added. The free voice servers allow about 2 voices a day, shared by everyone on your internet connection.'
+                  : 'Using ${account.name} (${account.isPro ? 'PRO' : 'free account'}): about ${account.dailyRequests} '
+                      'voices or conversions a day. The allowance refills 24 hours after its first use.',
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (account == null) ...[
+            Text('Get about 5 voices a day free, in 2 minutes:', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 6),
+            Text(
+              '1. Create a free account and confirm your email.\n'
+              '2. Open Access Tokens → "Create new token" → choose "Read" → name it "Telugu Voice" → Create.\n'
+              '3. Copy the token (it starts with hf_) and paste it below.',
+              style: small,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => _open('https://huggingface.co/join'),
+                  icon: const Icon(Icons.person_add_alt_rounded),
+                  label: const Text('1 · Create account'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _open('https://huggingface.co/settings/tokens'),
+                  icon: const Icon(Icons.key_rounded),
+                  label: const Text('2 · Access Tokens'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('hf-token'),
+              controller: _token,
+              obscureText: _hide,
+              autocorrect: false,
+              enableSuggestions: false,
+              decoration: InputDecoration(
+                labelText: '3 · Paste your token',
+                hintText: 'hf_…',
+                suffixIcon: IconButton(
+                  tooltip: _hide ? 'Show' : 'Hide',
+                  onPressed: () => setState(() => _hide = !_hide),
+                  icon: Icon(_hide ? Icons.visibility_rounded : Icons.visibility_off_rounded),
+                ),
+              ),
+              onSubmitted: (_) => _save(),
+            ),
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              key: const Key('hf-save'),
+              onPressed: _checking ? null : _save,
+              icon: _checking
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.check_rounded),
+              label: Text(_checking ? 'Checking…' : 'Save & check'),
+            ),
+          ] else
+            OutlinedButton.icon(
+              key: const Key('hf-remove'),
+              onPressed: () => app.clearHfToken(),
+              icon: const Icon(Icons.logout_rounded),
+              label: const Text('Remove token from this phone'),
+            ),
+          const SizedBox(height: 10),
+          Text(
+            'Use a "Read" token only. It stays on this phone and is sent only to the Hugging Face voice servers, '
+            'so they count your uses on your account. You can delete it any time here or on Hugging Face. '
+            'Need many more? Hugging Face PRO (about \$9 a month) gives about 8 times more, and extra time can be bought.',
+            style: small?.copyWith(color: theme.colorScheme.outline),
+          ),
         ],
       ),
     );

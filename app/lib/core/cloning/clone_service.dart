@@ -56,6 +56,7 @@ abstract class CloneService extends ChangeNotifier {
     required ConsentRecord consent,
     String? transcript,
     String? provider,
+    bool makePreview = false,
     CloneProgress? onProgress,
   });
 
@@ -153,6 +154,7 @@ class LocalCloneService extends CloneService {
     required ConsentRecord consent,
     String? transcript,
     String? provider,
+    bool makePreview = false,
     CloneProgress? onProgress,
   }) async {
     final info = CloneProviderInfo.indicF5OnPhone;
@@ -171,23 +173,25 @@ class LocalCloneService extends CloneService {
     onProgress?.call(0.15, 'Saving your voice sample…');
     final saved = await store.save(sample, title: 'Voice sample · ${name.trim()}', kind: 'original', ext: ext);
 
-    // A short preview proves the voice works. If the free server is busy the
-    // voice is still saved; the user can make speech later.
-    onProgress?.call(0.3, 'Creating your AI voice on the free server…');
+    // Optional short preview (it uses one of the day's free requests). If the
+    // free server is busy the voice is still saved; speech can be made later.
     LocalAudio? preview;
     String? warning;
     final previewLang = _previewText.containsKey(recordingLanguage) ? recordingLanguage : 'te';
-    try {
-      final wav = await engine.synthesizeWithSample(
-        _previewText[previewLang]!,
-        sample,
-        text,
-        filename: 'voice_sample.$ext',
-        onProgress: (step, total, message) => onProgress?.call(0.3 + 0.6 * step / total, message),
-      );
-      preview = await store.save(wav, title: 'Preview · ${name.trim()}', kind: 'clone');
-    } on FreeEngineException catch (e) {
-      warning = 'Voice saved, but the preview could not be made now. ${e.message}';
+    if (makePreview) {
+      onProgress?.call(0.3, 'Making a short preview on the free server…');
+      try {
+        final wav = await engine.synthesizeWithSample(
+          _previewText[previewLang]!,
+          sample,
+          text,
+          filename: 'voice_sample.$ext',
+          onProgress: (step, total, message) => onProgress?.call(0.3 + 0.6 * step / total, message),
+        );
+        preview = await store.save(wav, title: 'Preview · ${name.trim()}', kind: 'clone');
+      } on FreeEngineException catch (e) {
+        warning = 'Voice saved, but the preview could not be made now. ${e.message}';
+      }
     }
 
     final now = DateTime.now();
@@ -408,6 +412,7 @@ class ServerCloneService extends CloneService {
     required ConsentRecord consent,
     String? transcript,
     String? provider,
+    bool makePreview = false, // the server always makes one
     CloneProgress? onProgress,
   }) =>
       _guard(() async {

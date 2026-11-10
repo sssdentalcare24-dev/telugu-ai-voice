@@ -100,6 +100,13 @@ documented Gradio API (`app/lib/core/free/`):
 * **Seed-VC** (`plachta-seed-vc.hf.space`) – converts a recording into the chosen female or male voice,
   keeping the words and timing.
 
+**More free uses:** each request reserves about 60 seconds of shared ZeroGPU time. Without an account a
+connection gets about 2 minutes a day (about 2 voices); a free Hugging Face account about 5 minutes (about 5);
+PRO (about $9/month) about 40 minutes, extendable with prepaid credits. In the app, **Settings → More free uses**
+takes the user's own "Read" access token, checks it with `huggingface.co/api/whoami-v2`, keeps it on the
+phone only, and sends it as `Authorization: Bearer` to the two Spaces. Voice previews are optional, and long
+texts go in as few requests as possible, so the allowance goes further.
+
 Honest limits, also shown in the app: they need internet; the user's text or recording is sent to
 Hugging Face; they run on shared ZeroGPU hardware, so each internet connection gets only a few
 requests per day (the allowance refills over time) and requests can be slow when the servers are busy.

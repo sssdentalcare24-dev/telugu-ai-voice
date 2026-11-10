@@ -30,6 +30,15 @@ class GradioSpace {
   final String name;
   final http.Client _client;
 
+  /// Optional Hugging Face access token of the user's own account. With it,
+  /// requests count against that account's (larger) free daily GPU allowance
+  /// instead of the small allowance shared by everyone on the same connection.
+  String? token;
+
+  bool get signedIn => token != null && token!.isNotEmpty;
+
+  Map<String, String> get _auth => signedIn ? {'Authorization': 'Bearer ${token!}'} : const {};
+
   static const Duration timeout = Duration(minutes: 4);
 
   /// Runs [api] with positional [data] and returns the output list.
@@ -37,7 +46,7 @@ class GradioSpace {
     final start = await _send(
       () => _client.post(
         Uri.parse('$baseUrl/gradio_api/call/$api'),
-        headers: const {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', ..._auth},
         body: jsonEncode({'data': data}),
       ),
     );
@@ -50,14 +59,15 @@ class GradioSpace {
     if (eventId == null || eventId.isEmpty) {
       throw FreeEngineException('$name did not accept the request. Please try again in a minute.');
     }
-    final result = await _send(() => _client.get(Uri.parse('$baseUrl/gradio_api/call/$api/$eventId')));
-    return parseEvents(utf8.decode(result.bodyBytes, allowMalformed: true), name);
+    final result = await _send(() => _client.get(Uri.parse('$baseUrl/gradio_api/call/$api/$eventId'), headers: _auth));
+    return parseEvents(utf8.decode(result.bodyBytes, allowMalformed: true), name, signedIn: signedIn);
   }
 
   /// Uploads a file and returns the server-side path to pass to [fileData].
   Future<String> upload(Uint8List bytes, String filename) async {
     final response = await _send(() async {
       final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/gradio_api/upload'))
+        ..headers.addAll(_auth)
         ..files.add(http.MultipartFile.fromBytes('files', bytes, filename: filename));
       return http.Response.fromStream(await _client.send(request));
     });
@@ -72,7 +82,7 @@ class GradioSpace {
 
   /// Downloads a file the Space produced (a `path` from an output).
   Future<Uint8List> download(String path) async {
-    final response = await _send(() => _client.get(Uri.parse('$baseUrl/gradio_api/file=$path')));
+    final response = await _send(() => _client.get(Uri.parse('$baseUrl/gradio_api/file=$path'), headers: _auth));
     if (response.bodyBytes.isEmpty) throw FreeEngineException('$name returned an empty audio file.');
     return response.bodyBytes;
   }
@@ -98,7 +108,7 @@ class GradioSpace {
   }
 
   /// Reads the server-sent events of a finished call.
-  static List<dynamic> parseEvents(String body, String name) {
+  static List<dynamic> parseEvents(String body, String name, {bool signedIn = false}) {
     String? event;
     for (final line in const LineSplitter().convert(body)) {
       if (line.startsWith('event:')) {
@@ -112,12 +122,16 @@ class GradioSpace {
         if (decoded is List) return decoded;
         throw FreeEngineException('$name sent an unexpected answer. Please try again.');
       }
-      if (event == 'error') throw FreeEngineException(friendlyError(data, name));
+      if (event == 'error') throw FreeEngineException(friendlyError(data, name, signedIn: signedIn));
     }
     throw FreeEngineException('$name stopped without a result. It may be busy; please try again in a minute.');
   }
 
-  static String friendlyError(String raw, String name) {
+  static String friendlyError(String raw, String name, {bool signedIn = false}) {
+    final more = signedIn
+        ? " Your Hugging Face account's free allowance refills 24 hours after its first use today; "
+            'a PRO account gives about 8 times more.'
+        : ' For more uses per day, add your free Hugging Face account in Settings.';
     String? text;
     try {
       final decoded = jsonDecode(raw);
@@ -128,14 +142,13 @@ class GradioSpace {
     }
     final lower = (text ?? '').toLowerCase();
     if (lower.contains('quota') || lower.contains('limit')) {
-      return "$name has used up today's free limit. Please try again after a few hours.";
+      return "$name has used up today's free limit. Please try again after a few hours.$more";
     }
     if (text == null || text.isEmpty || text == 'null') {
       // Public ZeroGPU Spaces hide the reason; the usual one is the free daily
       // GPU allowance of this internet connection.
-      return "$name could not finish. It may be busy, or today's free limit for your internet "
-          'connection may be used up (it refills over the day). Try again later, or switch between '
-          'Wi-Fi and mobile data.';
+      return "$name could not finish. It may be busy, or today's free limit may be used up "
+          '(it refills over the day). Try again later.$more';
     }
     final short = text.length > 220 ? '${text.substring(0, 220)}…' : text;
     return '$name reported a problem: $short';

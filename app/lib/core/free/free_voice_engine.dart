@@ -1,9 +1,22 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
 import 'gradio_space.dart';
 import 'wav.dart';
+
+/// The Hugging Face account behind a saved access token.
+class HfAccount {
+  const HfAccount({required this.name, required this.isPro});
+
+  final String name;
+  final bool isPro;
+
+  /// Rough number of voices per day: each request reserves about 60 seconds of
+  /// shared GPU time (free account about 5 min/day, PRO about 40 min/day).
+  int get dailyRequests => isPro ? 40 : 5;
+}
 
 /// Voices offered by the free natural engine. Each one is a sample speaker
 /// published by AI4Bharat with IndicF5; the engine speaks Telugu text in that
@@ -41,7 +54,8 @@ typedef FreeProgress = void Function(int step, int total, String message);
 /// says clearly before every use.
 class FreeVoiceEngine {
   FreeVoiceEngine({http.Client? client, String? ttsUrl, String? conversionUrl})
-      : tts = GradioSpace(
+      : _http = client,
+        tts = GradioSpace(
           ttsUrl ?? defaultTtsUrl,
           name: 'The free Telugu voice server (AI4Bharat IndicF5)',
           client: client,
@@ -64,7 +78,7 @@ class FreeVoiceEngine {
   /// internet connection. So text goes in few, fairly large pieces (IndicF5
   /// splits long text internally), and typical messages need just one request.
   static const int maxChars = 1000;
-  static const int chunkChars = 600;
+  static const int chunkChars = 1200; // one request (one daily-allowance slot) for most texts
   static const int maxChunks = 6;
 
   /// Longest recording accepted for conversion, and the largest file.
@@ -73,6 +87,43 @@ class FreeVoiceEngine {
 
   final GradioSpace tts;
   final GradioSpace conversion;
+  final http.Client? _http;
+
+  /// The user's own Hugging Face token (or null), sent to both servers.
+  String? get token => tts.token;
+  set token(String? value) {
+    tts.token = value;
+    conversion.token = value;
+  }
+
+  /// Checks a token with Hugging Face and returns the account it belongs to.
+  Future<HfAccount> checkToken(String token) async {
+    final t = token.trim();
+    if (!t.startsWith('hf_') || t.length < 20) {
+      throw FreeEngineException('That does not look like a Hugging Face token. It starts with "hf_".');
+    }
+    final client = _http ?? http.Client();
+    final http.Response response;
+    try {
+      response = await client
+          .get(Uri.parse('https://huggingface.co/api/whoami-v2'), headers: {'Authorization': 'Bearer $t'})
+          .timeout(const Duration(seconds: 20));
+    } catch (_) {
+      throw FreeEngineException('Could not reach Hugging Face to check the token. Check the internet connection.');
+    }
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw FreeEngineException('Hugging Face did not accept this token. Copy it again from your Access Tokens page.');
+    }
+    if (response.statusCode != 200) {
+      throw FreeEngineException('Hugging Face could not check the token right now (HTTP ${response.statusCode}).');
+    }
+    try {
+      final j = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      return HfAccount(name: (j['name'] as String?) ?? 'your account', isPro: j['isPro'] == true);
+    } catch (_) {
+      throw FreeEngineException('Hugging Face sent an unexpected answer. Please try again.');
+    }
+  }
 
   /// Speaker samples, downloaded once and reused for conversions.
   final Map<int, Uint8List> _sampleAudio = {};

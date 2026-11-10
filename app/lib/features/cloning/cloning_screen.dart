@@ -255,6 +255,7 @@ class _CreateVoiceTabState extends State<_CreateVoiceTab> with AutomaticKeepAliv
   String _language = 'te';
   String _relationship = 'self';
   bool _consent = false;
+  bool _makePreview = false;
   bool _micExplained = false;
   Timer? _ticker;
   int _seconds = 0;
@@ -416,6 +417,7 @@ class _CreateVoiceTabState extends State<_CreateVoiceTab> with AutomaticKeepAliv
         filename: _filename,
         transcript: _provider.needsTranscript ? _transcript.text : null,
         provider: widget.service.onDevice ? null : _provider.name,
+        makePreview: _makePreview,
         consent: ConsentRecord(
           relationship: _relationship,
           statement: ConsentRecord.statementFor(_relationship),
@@ -713,7 +715,16 @@ class _CreateVoiceTabState extends State<_CreateVoiceTab> with AutomaticKeepAliv
                   ],
                 ),
               ),
-              const SizedBox(height: 20),
+              if (widget.service.onDevice)
+                CheckboxListTile(
+                  key: const Key('clone-preview'),
+                  value: _makePreview,
+                  onChanged: (v) => setState(() => _makePreview = v ?? false),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('Also make a short spoken preview now'),
+                  subtitle: const Text("Uses 1 of today's free voices. Leave it off to save them; you can still play your recording."),
+                ),
+              const SizedBox(height: 12),
 
               FilledButton.icon(
                 key: const Key('clone-create'),
@@ -1211,12 +1222,18 @@ class _SpeakTabState extends State<_SpeakTab> with AutomaticKeepAliveClientMixin
               ],
               if (service.onDevice) ...[
                 const SizedBox(height: 8),
-                Text(
-                  'Made by the free AI4Bharat IndicF5 server on Hugging Face: about 10–40 seconds each, '
-                  'a few per day for each internet connection.',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
-                ),
+                Builder(builder: (context) {
+                  final account = AppScope.of(context).hfAccount;
+                  return Text(
+                    account == null
+                        ? 'Made by the free AI4Bharat IndicF5 server: about 10–40 seconds each, about 2 a day. '
+                            'Add your free Hugging Face account in Settings for about 5 a day.'
+                        : 'Made by the free AI4Bharat IndicF5 server on ${account.name}: about ${account.dailyRequests} a day.',
+                    key: const Key('clone-allowance'),
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+                  );
+                }),
               ],
 
               if (_result != null) ...[
