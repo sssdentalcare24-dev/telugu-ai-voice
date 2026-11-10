@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 abstract final class AppConfig {
   static const String appName = 'తెలుగు AI Voice';
   static const String appSubtitle = 'Telugu Voice Studio';
-  static const String version = '0.5.1 · AI voice cloning + own Hugging Face account';
+  static const String version = '0.6.0 · unlimited voices on your PC';
 
   /// Set with: flutter run --dart-define=API_BASE_URL=https://api.example.com
   /// Use "/" when the web app is served from the same origin as the API.

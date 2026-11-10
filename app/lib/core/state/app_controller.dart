@@ -26,6 +26,8 @@ class AppController extends ChangeNotifier {
         localAudio = localAudio ?? LocalAudioStore(prefs: prefs),
         freeEngine = freeEngine ?? FreeVoiceEngine(),
         playback = playback ?? AudioPlayback() {
+    final pc = prefs.getString(_kPcUrl);
+    if (pc != null && pc.isNotEmpty) this.freeEngine.pcUrl = pc;
     final token = prefs.getString(_kHfToken);
     if (token != null && token.isNotEmpty) {
       this.freeEngine.token = token;
@@ -48,6 +50,7 @@ class AppController extends ChangeNotifier {
   static const _kHfToken = 'hf_token';
   static const _kHfName = 'hf_account_name';
   static const _kHfPro = 'hf_account_pro';
+  static const _kPcUrl = 'pc_voice_server';
   static const _kApiBase = 'api_base_url';
   static const _kDevUser = 'dev_user';
 
@@ -79,6 +82,25 @@ class AppController extends ChangeNotifier {
     await _prefs.setBool(_kHfPro, account.isPro);
     notifyListeners();
     return account;
+  }
+
+  /// Address of the user's PC voice server (unlimited voices), or null.
+  String? get pcUrl => freeEngine.pcUrl;
+
+  /// Checks and saves the PC voice server address.
+  Future<PcServerInfo> setPcUrl(String raw) async {
+    final url = normalizePcUrl(raw);
+    final info = await freeEngine.checkPc(url);
+    freeEngine.pcUrl = url;
+    await _prefs.setString(_kPcUrl, url);
+    notifyListeners();
+    return info;
+  }
+
+  Future<void> clearPcUrl() async {
+    freeEngine.pcUrl = null;
+    await _prefs.remove(_kPcUrl);
+    notifyListeners();
   }
 
   Future<void> clearHfToken() async {

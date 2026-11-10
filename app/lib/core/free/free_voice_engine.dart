@@ -18,6 +18,30 @@ class HfAccount {
   int get dailyRequests => isPro ? 40 : 5;
 }
 
+/// What the PC voice server reports about itself.
+class PcServerInfo {
+  const PcServerInfo({required this.device, required this.modelReady, required this.loading, this.error});
+
+  final String device;
+  final bool modelReady;
+  final bool loading;
+  final String? error;
+
+  bool get onGpu => device.startsWith('GPU');
+}
+
+/// Turns what the user typed into a PC server address, e.g.
+/// "192.168.1.23:7860/k/482913" -> "http://192.168.1.23:7860/k/482913".
+String normalizePcUrl(String raw) {
+  var v = raw.trim().replaceAll(' ', '');
+  while (v.endsWith('/')) {
+    v = v.substring(0, v.length - 1);
+  }
+  if (v.isEmpty) return v;
+  if (!v.startsWith('http://') && !v.startsWith('https://')) v = 'http://$v';
+  return v;
+}
+
 /// Voices offered by the free natural engine. Each one is a sample speaker
 /// published by AI4Bharat with IndicF5; the engine speaks Telugu text in that
 /// speaker's voice.
@@ -89,6 +113,98 @@ class FreeVoiceEngine {
   final GradioSpace conversion;
   final http.Client? _http;
 
+  // ---- The user's own PC (unlimited) ----------------------------------------------
+  GradioSpace? _pc;
+  DateTime? _pcCheckedAt;
+  bool _pcOk = false;
+
+  /// True when the last voice was made on the user's PC.
+  bool lastUsedPc = false;
+
+  /// Address of the user's PC voice server (see pc-server/), or null.
+  String? get pcUrl => _pc?.baseUrl;
+  set pcUrl(String? url) {
+    final u = url == null ? '' : normalizePcUrl(url);
+    _pc = u.isEmpty
+        ? null
+        : GradioSpace(u, name: 'Your PC voice server', client: _http, timeout: const Duration(minutes: 15));
+    _pcCheckedAt = null;
+  }
+
+  /// Asks the PC voice server how it is doing. Throws a readable error when it
+  /// cannot be reached or the address/code is wrong.
+  Future<PcServerInfo> checkPc(String url) async {
+    final u = normalizePcUrl(url);
+    if (!RegExp(r'^https?://[^/]+/k/\d{6}$').hasMatch(u)) {
+      throw FreeEngineException('Type the full address shown in the PC window, like 192.168.1.23:7860/k/482913.');
+    }
+    final http.Response r;
+    try {
+      r = await (_http ?? http.Client()).get(Uri.parse('$u/info')).timeout(const Duration(seconds: 8));
+    } catch (_) {
+      throw FreeEngineException(
+        'Cannot reach your PC. Is the voice server window open on the PC, and is this phone on the same Wi-Fi?',
+        unreachable: true,
+      );
+    }
+    if (r.statusCode == 404) {
+      throw FreeEngineException('The PC answered, but the code is wrong. Copy the address again from the PC window.');
+    }
+    try {
+      final j = jsonDecode(utf8.decode(r.bodyBytes)) as Map<String, dynamic>;
+      if (j['server'] != 'telugu-voice-pc') throw const FormatException();
+      return PcServerInfo(
+        device: j['device'] as String? ?? '',
+        modelReady: j['model_ready'] == true,
+        loading: j['loading'] == true,
+        error: j['error'] as String?,
+      );
+    } catch (_) {
+      throw FreeEngineException('That address is not the Telugu AI Voice PC server.');
+    }
+  }
+
+  /// The server to use now: the PC when it answers and its model is ready,
+  /// otherwise the free online server.
+  Future<GradioSpace> _voiceServer(FreeProgress? onProgress) async {
+    final pc = _pc;
+    if (pc == null) return tts;
+    final now = DateTime.now();
+    if (_pcCheckedAt == null || now.difference(_pcCheckedAt!) > const Duration(seconds: 30)) {
+      _pcOk = false;
+      try {
+        final r = await (_http ?? http.Client()).get(Uri.parse('${pc.baseUrl}/info')).timeout(const Duration(seconds: 4));
+        final j = jsonDecode(utf8.decode(r.bodyBytes));
+        _pcOk = r.statusCode == 200 && j is Map && j['server'] == 'telugu-voice-pc' && j['model_ready'] == true;
+      } catch (_) {
+        _pcOk = false;
+      }
+      _pcCheckedAt = now;
+    }
+    if (_pcOk) return pc;
+    onProgress?.call(0, 1, 'Your PC is not available – using the free online server…');
+    return tts;
+  }
+
+  /// Runs [job] on the PC when possible; if the PC stops answering midway,
+  /// runs it once more on the free online server.
+  Future<T> _onVoiceServer<T>(FreeProgress? onProgress, Future<T> Function(GradioSpace server) job) async {
+    final server = await _voiceServer(onProgress);
+    try {
+      final result = await job(server);
+      lastUsedPc = !identical(server, tts);
+      return result;
+    } on FreeEngineException catch (e) {
+      if (identical(server, tts) || !e.unreachable) rethrow;
+      _pcOk = false;
+      _pcCheckedAt = DateTime.now();
+      onProgress?.call(0, 1, 'Lost the connection to your PC – using the free online server…');
+      final result = await job(tts);
+      lastUsedPc = false;
+      return result;
+    }
+  }
+
   /// The user's own Hugging Face token (or null), sent to both servers.
   String? get token => tts.token;
   set token(String? value) {
@@ -135,23 +251,25 @@ class FreeVoiceEngine {
     if (chunks.length > maxChunks) {
       throw FreeEngineException('The natural voice accepts up to about $maxChars letters at a time.');
     }
-    final total = chunks.length + 1;
-    onProgress?.call(0, total, 'Connecting to the free voice server…');
-    final sample = await _speakerSample(voice.example);
-    final clips = <Uint8List>[];
-    for (var i = 0; i < chunks.length; i++) {
-      onProgress?.call(i + 1, total, chunks.length == 1 ? 'Making the voice…' : 'Making part ${i + 1} of ${chunks.length}…');
-      final out = await tts.call('synthesize_speech', [chunks[i], GradioSpace.fileData(sample.path), sample.text]);
-      final path = out.isEmpty ? null : GradioSpace.pathOf(out.first);
-      if (path == null) throw FreeEngineException('${tts.name} did not return any audio. Please try again.');
-      clips.add(await tts.download(path));
-    }
-    onProgress?.call(total, total, 'Done');
-    try {
-      return concatWavs(clips);
-    } on ArgumentError {
-      throw FreeEngineException('${tts.name} returned audio in an unexpected format.');
-    }
+    return _onVoiceServer(onProgress, (server) async {
+      final total = chunks.length + 1;
+      onProgress?.call(0, total, 'Connecting to the voice server…');
+      final sample = await _speakerSample(voice.example, server);
+      final clips = <Uint8List>[];
+      for (var i = 0; i < chunks.length; i++) {
+        onProgress?.call(i + 1, total, chunks.length == 1 ? 'Making the voice…' : 'Making part ${i + 1} of ${chunks.length}…');
+        final out = await server.call('synthesize_speech', [chunks[i], GradioSpace.fileData(sample.path), sample.text]);
+        final path = out.isEmpty ? null : GradioSpace.pathOf(out.first);
+        if (path == null) throw FreeEngineException('${server.name} did not return any audio. Please try again.');
+        clips.add(await server.download(path));
+      }
+      onProgress?.call(total, total, 'Done');
+      try {
+        return concatWavs(clips);
+      } on ArgumentError {
+        throw FreeEngineException('${server.name} returned audio in an unexpected format.');
+      }
+    });
   }
 
   /// Converts the speech in [source] (any common audio format) into [target]'s
@@ -198,6 +316,7 @@ class FreeVoiceEngine {
   /// Speaks [text] in the voice of [sample] (a WAV/MP3 recording of one
   /// person saying exactly [transcript]) - zero-shot voice cloning with IndicF5.
   /// The sample is uploaded with each request; nothing is stored at the server.
+  /// Uses the user's PC when it is set up and reachable (no daily limit).
   Future<Uint8List> synthesizeWithSample(
     String text,
     Uint8List sample,
@@ -211,39 +330,42 @@ class FreeVoiceEngine {
       throw FreeEngineException('The free voice accepts up to about $maxChars letters at a time.');
     }
     if (transcript.trim().isEmpty) throw FreeEngineException('The voice sample has no transcript.');
-    final total = chunks.length + 1;
-    onProgress?.call(0, total, 'Sending your voice sample…');
-    final path = await tts.upload(sample, filename);
-    final clips = <Uint8List>[];
-    for (var i = 0; i < chunks.length; i++) {
-      onProgress?.call(i + 1, total, chunks.length == 1 ? 'Speaking in your voice…' : 'Speaking part ${i + 1} of ${chunks.length}…');
-      final out = await tts.call('synthesize_speech', [chunks[i], GradioSpace.fileData(path), transcript.trim()]);
-      final result = out.isEmpty ? null : GradioSpace.pathOf(out.first);
-      if (result == null) {
-        final message = out.isEmpty ? null : GradioSpace.valueOf(out.first);
-        throw FreeEngineException(
-          message is String && message.startsWith('Error')
-              ? '${tts.name}: $message'
-              : '${tts.name} did not return any audio. Please try again.',
-        );
+    return _onVoiceServer(onProgress, (server) async {
+      final total = chunks.length + 1;
+      onProgress?.call(0, total, 'Sending your voice sample…');
+      final path = await server.upload(sample, filename);
+      final clips = <Uint8List>[];
+      for (var i = 0; i < chunks.length; i++) {
+        onProgress?.call(i + 1, total, chunks.length == 1 ? 'Speaking in your voice…' : 'Speaking part ${i + 1} of ${chunks.length}…');
+        final out = await server.call('synthesize_speech', [chunks[i], GradioSpace.fileData(path), transcript.trim()]);
+        final result = out.isEmpty ? null : GradioSpace.pathOf(out.first);
+        if (result == null) {
+          final message = out.isEmpty ? null : GradioSpace.valueOf(out.first);
+          throw FreeEngineException(
+            message is String && message.startsWith('Error')
+                ? '${server.name}: $message'
+                : '${server.name} did not return any audio. Please try again.',
+          );
+        }
+        clips.add(await server.download(result));
       }
-      clips.add(await tts.download(result));
-    }
-    onProgress?.call(total, total, 'Done');
-    try {
-      return concatWavs(clips);
-    } on ArgumentError {
-      throw FreeEngineException('${tts.name} returned audio in an unexpected format.');
-    }
+      onProgress?.call(total, total, 'Done');
+      try {
+        return concatWavs(clips);
+      } on ArgumentError {
+        throw FreeEngineException('${server.name} returned audio in an unexpected format.');
+      }
+    });
   }
 
-  Future<({String path, String text})> _speakerSample(int example) async {
-    final out = await tts.call('load_example', [example]);
+  Future<({String path, String text})> _speakerSample(int example, [GradioSpace? server]) async {
+    final space = server ?? tts;
+    final out = await space.call('load_example', [example]);
     // Outputs: [text to speak, reference audio, text spoken in the reference]
     final path = out.length > 1 ? GradioSpace.pathOf(out[1]) : null;
     final text = out.length > 2 ? GradioSpace.valueOf(out[2]) : null;
     if (path == null || text is! String) {
-      throw FreeEngineException('${tts.name} has changed its voice list. Please update the app.');
+      throw FreeEngineException('${space.name} has changed its voice list. Please update the app.');
     }
     return (path: path, text: text);
   }

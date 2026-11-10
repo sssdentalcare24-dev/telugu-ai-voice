@@ -22,6 +22,11 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest
+      - name: PC voice server tests
+        working-directory: pc-server
+        run: |
+          pip install soundfile numpy
+          python -m pytest -q
 
   android:
     name: Android APK

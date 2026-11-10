@@ -155,6 +155,57 @@ void main() {
     });
   });
 
+  group('PC voice server (unlimited)', () {
+    MockClient servers(List<String> hosts, {bool pcOn = true, bool pcReady = true}) => MockClient((req) async {
+          hosts.add(req.url.host);
+          final pc = req.url.host == '192.168.1.23';
+          if (pc && !pcOn) throw http.ClientException('No route to host', req.url);
+          final path = pc ? req.url.path.replaceFirst('/k/482913', '') : req.url.path;
+          if (pc && !req.url.path.startsWith('/k/482913')) return http.Response('', 404);
+          if (path == '/info') {
+            return http.Response('{"server":"telugu-voice-pc","model_ready":$pcReady,"loading":false,"device":"CPU"}', 200);
+          }
+          if (path == '/gradio_api/upload') return http.Response('["uploads/a/voice_sample.wav"]', 200);
+          if (req.method == 'POST') return http.Response('{"event_id":"e1"}', 200);
+          if (path.startsWith('/gradio_api/call/')) {
+            return http.Response('event: complete\ndata: [{"path": "outputs/o.wav"}]\n\n', 200);
+          }
+          return http.Response.bytes(_wav(1), 200);
+        });
+
+    test('addresses are cleaned up and checked', () async {
+      expect(normalizePcUrl(' 192.168.1.23:7860/k/482913/ '), 'http://192.168.1.23:7860/k/482913');
+      final engine = FreeVoiceEngine(client: servers([]));
+      final info = await engine.checkPc('192.168.1.23:7860/k/482913');
+      expect(info.modelReady, isTrue);
+      await expectLater(engine.checkPc('192.168.1.23:7860/k/111111'), throwsA(isA<FreeEngineException>()
+          .having((e) => e.message, 'message', contains('code is wrong'))));
+      await expectLater(engine.checkPc('192.168.1.23'), throwsA(isA<FreeEngineException>()));
+    });
+
+    test('cloned speech is made on the PC when it is on', () async {
+      final hosts = <String>[];
+      final engine = FreeVoiceEngine(client: servers(hosts))..pcUrl = '192.168.1.23:7860/k/482913';
+      await engine.synthesizeWithSample('నమస్కారం', _wav(6), 'నమస్కారం');
+      expect(hosts.toSet(), {'192.168.1.23'});
+      expect(engine.lastUsedPc, isTrue);
+    });
+
+    test('falls back to the free online server when the PC is off or not ready', () async {
+      for (final (on, ready) in [(false, true), (true, false)]) {
+        final hosts = <String>[];
+        final notes = <String>[];
+        final engine = FreeVoiceEngine(client: servers(hosts, pcOn: on, pcReady: ready))
+          ..pcUrl = '192.168.1.23:7860/k/482913';
+        await engine.synthesizeWithSample('నమస్కారం', _wav(6), 'నమస్కారం', onProgress: (s, t, m) => notes.add(m));
+        expect(hosts.where((h) => h == '192.168.1.23'), hasLength(1)); // only the quick check
+        expect(hosts.where((h) => h.endsWith('hf.space')), isNotEmpty);
+        expect(engine.lastUsedPc, isFalse);
+        expect(notes.first, contains('PC is not available'));
+      }
+    });
+  });
+
   group('Free engine limits', () {
     test('refuses recordings longer than a minute before uploading anything', () async {
       var requests = 0;

@@ -1,7 +1,7 @@
 name: telugu_ai_voice
 description: "తెలుగు AI Voice – Telugu Voice Studio"
 publish_to: 'none'
-version: 0.5.1+6
+version: 0.6.0+7
 
 environment:
   sdk: ^3.8.0

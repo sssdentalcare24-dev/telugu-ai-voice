@@ -1223,9 +1223,13 @@ class _SpeakTabState extends State<_SpeakTab> with AutomaticKeepAliveClientMixin
               if (service.onDevice) ...[
                 const SizedBox(height: 8),
                 Builder(builder: (context) {
-                  final account = AppScope.of(context).hfAccount;
+                  final app = AppScope.of(context);
+                  final account = app.hfAccount;
                   return Text(
-                    account == null
+                    app.pcUrl != null
+                        ? 'Made on your PC – unlimited – when it is on and this phone is on the same Wi-Fi. '
+                            'Otherwise the free online server is used.'
+                        : account == null
                         ? 'Made by the free AI4Bharat IndicF5 server: about 10–40 seconds each, about 2 a day. '
                             'Add your free Hugging Face account in Settings for about 5 a day.'
                         : 'Made by the free AI4Bharat IndicF5 server on ${account.name}: about ${account.dailyRequests} a day.',

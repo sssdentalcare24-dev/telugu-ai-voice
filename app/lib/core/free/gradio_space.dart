@@ -6,9 +6,12 @@ import 'package:http/http.dart' as http;
 
 /// A readable error from one of the free online AI engines.
 class FreeEngineException implements Exception {
-  FreeEngineException(this.message);
+  FreeEngineException(this.message, {this.unreachable = false});
 
   final String message;
+
+  /// True when the server could not be reached at all (no connection).
+  final bool unreachable;
 
   @override
   String toString() => message;
@@ -21,7 +24,8 @@ class FreeEngineException implements Exception {
 /// of their daily free GPU time. Every failure becomes a [FreeEngineException]
 /// with a message a non-technical user can act on.
 class GradioSpace {
-  GradioSpace(this.baseUrl, {required this.name, http.Client? client}) : _client = client ?? http.Client();
+  GradioSpace(this.baseUrl, {required this.name, http.Client? client, this.timeout = defaultTimeout})
+      : _client = client ?? http.Client();
 
   /// e.g. https://ai4bharat-indicf5.hf.space (no trailing slash)
   final String baseUrl;
@@ -39,7 +43,10 @@ class GradioSpace {
 
   Map<String, String> get _auth => signedIn ? {'Authorization': 'Bearer ${token!}'} : const {};
 
-  static const Duration timeout = Duration(minutes: 4);
+  static const Duration defaultTimeout = Duration(minutes: 4);
+
+  /// How long one request may take (longer for a PC without a GPU).
+  final Duration timeout;
 
   /// Runs [api] with positional [data] and returns the output list.
   Future<List<dynamic>> call(String api, List<Object?> data) async {
@@ -161,10 +168,10 @@ class GradioSpace {
     } on TimeoutException {
       throw FreeEngineException('$name is taking too long (it may be very busy). Please try again later.');
     } on http.ClientException {
-      throw FreeEngineException('No internet connection, or $name cannot be reached right now.');
+      throw FreeEngineException('No internet connection, or $name cannot be reached right now.', unreachable: true);
     } catch (e) {
       if (e is FreeEngineException) rethrow;
-      throw FreeEngineException('No internet connection, or $name cannot be reached right now.');
+      throw FreeEngineException('No internet connection, or $name cannot be reached right now.', unreachable: true);
     }
     final code = response.statusCode;
     if (code >= 200 && code < 300) return response;

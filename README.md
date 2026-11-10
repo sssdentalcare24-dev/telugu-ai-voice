@@ -90,6 +90,23 @@ audio id, text, language, provider, speed and time. Samples and generated audio 
 keys above, and keep `data/` on a persistent disk. Then enter the server address in the app's Settings.
 The cloning screen shows an **App server** option as soon as the server reports cloning as available.
 
+### Unlimited free voices: the PC voice server (`pc-server/`)
+
+Free cloud GPUs always have a daily cap. For unlimited use at no cost, IndicF5 runs on the user's own
+Windows PC and the phone uses it over the same Wi-Fi:
+
+* `Telugu-Voice-PC-Server.bat` – one double-click: installs Python 3.11 (winget), a private venv,
+  PyTorch 2.7.1 (CUDA 12.6 build if `nvidia-smi` finds an NVIDIA GPU, else CPU), IndicF5 from GitHub and
+  FastAPI; asks once for the user's Hugging Face token (IndicF5 is a gated model); then starts the server.
+  Later runs just start it. `Repair.bat` reinstalls.
+* `voice_server.py` – FastAPI server that answers the same Gradio-style calls as the online Space
+  (`/gradio_api/upload`, `/gradio_api/call/{synthesize_speech|load_example}`, `/gradio_api/file=`), so the
+  app's engine code is unchanged. Every path is under a secret 6-digit code (`/k/<code>/…`); files are
+  served only from its own data folder; one request at a time; keeps Windows awake while running.
+* App: **Settings → My PC voice server** takes the address the window shows. Before each voice the app
+  checks the PC (4 s); when it is off or away it uses the free online server automatically.
+* Speed: seconds per sentence with an NVIDIA GPU, roughly 20–60 s on CPU.
+
 ### Free online engines (no keys)
 
 When no backend is connected, the app calls two public Hugging Face Spaces directly over their

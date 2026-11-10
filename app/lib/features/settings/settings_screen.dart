@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/config/app_config.dart';
 import '../../core/feature_status.dart';
+import '../../core/free/free_voice_engine.dart';
 import '../../core/free/gradio_space.dart';
 import '../../core/state/app_controller.dart';
 import '../../core/state/app_scope.dart';
@@ -193,6 +194,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 14),
 
+              const _PcServerCard(),
+              const SizedBox(height: 14),
               const _HfAccountCard(),
               const SizedBox(height: 14),
 
@@ -428,6 +431,166 @@ class _HfAccountCardState extends State<_HfAccountCard> {
             'Use a "Read" token only. It stays on this phone and is sent only to the Hugging Face voice servers, '
             'so they count your uses on your account. You can delete it any time here or on Hugging Face. '
             'Need many more? Hugging Face PRO (about \$9 a month) gives about 8 times more, and extra time can be bought.',
+            style: small?.copyWith(color: theme.colorScheme.outline),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+/// Connects the app to the user's own PC voice server (pc-server/): IndicF5 on
+/// their computer, so voices and cloned voices have no daily limit.
+class _PcServerCard extends StatefulWidget {
+  const _PcServerCard();
+
+  @override
+  State<_PcServerCard> createState() => _PcServerCardState();
+}
+
+class _PcServerCardState extends State<_PcServerCard> {
+  final _url = TextEditingController();
+  bool _checking = false;
+  PcServerInfo? _info;
+  String? _problem;
+
+  @override
+  void dispose() {
+    _url.dispose();
+    super.dispose();
+  }
+
+  Future<void> _connect() async {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _checking = true;
+      _problem = null;
+    });
+    try {
+      final info = await AppScope.read(context).setPcUrl(_url.text);
+      if (!mounted) return;
+      setState(() => _info = info);
+      _url.clear();
+      showMessage(
+        context,
+        info.modelReady
+            ? 'Connected to your PC · unlimited voices'
+            : 'Connected. The PC is still getting the voice model ready – try again in a few minutes.',
+      );
+    } on FreeEngineException catch (e) {
+      if (mounted) setState(() => _problem = e.message);
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  Future<void> _check(String url) async {
+    setState(() {
+      _checking = true;
+      _problem = null;
+    });
+    try {
+      final info = await AppScope.read(context).freeEngine.checkPc(url);
+      if (mounted) setState(() => _info = info);
+    } on FreeEngineException catch (e) {
+      if (mounted) setState(() => _problem = e.message);
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppScope.of(context);
+    final url = app.pcUrl;
+    final theme = Theme.of(context);
+    final small = theme.textTheme.bodySmall?.copyWith(height: 1.5);
+    final info = _info;
+    String status;
+    if (url == null) {
+      status = 'Not set up. Run the voice AI on your Windows PC and the app makes voices and cloned voices '
+          'with no daily limit, free, while the phone is on the same Wi-Fi.';
+    } else if (_problem != null) {
+      status = _problem!;
+    } else if (info == null) {
+      status = 'Saved: $url\nUsed whenever the PC answers; otherwise the free online server is used.';
+    } else if (info.error != null) {
+      status = 'The PC answered, but: ${info.error}';
+    } else if (!info.modelReady) {
+      status = 'Connected. The PC is still getting the voice model ready…';
+    } else {
+      status = 'Connected · unlimited · ${info.device}';
+    }
+    final good = url != null && _problem == null && (info == null || (info.modelReady && info.error == null));
+    return SectionCard(
+      title: 'My PC voice server · unlimited',
+      icon: Icons.computer_rounded,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            key: const Key('pc-status'),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: (good ? AppColors.success : AppColors.warning).withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Text(status, style: theme.textTheme.bodyMedium),
+          ),
+          const SizedBox(height: 12),
+          if (url == null) ...[
+            Text(
+              '1. On the PC, open this chat in the Claude app and download "Telugu-Voice-PC-Server.zip".\n'
+              '2. Extract it and double-click "Telugu-Voice-PC-Server.bat". The first time it installs by itself (10–40 min).\n'
+              '3. Type the address it shows, like 192.168.1.23:7860/k/482913.',
+              style: small,
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              key: const Key('pc-url'),
+              controller: _url,
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              decoration: const InputDecoration(labelText: 'PC address', hintText: '192.168.1.23:7860/k/482913'),
+              onSubmitted: (_) => _connect(),
+            ),
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              key: const Key('pc-connect'),
+              onPressed: _checking ? null : _connect,
+              icon: _checking
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.link_rounded),
+              label: Text(_checking ? 'Connecting…' : 'Connect'),
+            ),
+          ] else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonalIcon(
+                  key: const Key('pc-check'),
+                  onPressed: _checking ? null : () => _check(url),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(_checking ? 'Checking…' : 'Check now'),
+                ),
+                OutlinedButton.icon(
+                  key: const Key('pc-remove'),
+                  onPressed: () => setState(() {
+                    _info = null;
+                    _problem = null;
+                    app.clearPcUrl();
+                  }),
+                  icon: const Icon(Icons.link_off_rounded),
+                  label: const Text('Remove'),
+                ),
+              ],
+            ),
+          const SizedBox(height: 10),
+          Text(
+            'When the PC is off or you are away from its Wi-Fi, the app uses the free online server instead '
+            '(with its daily limit). Conversion between male and female voices still uses the online server.',
             style: small?.copyWith(color: theme.colorScheme.outline),
           ),
         ],
